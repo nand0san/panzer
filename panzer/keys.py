@@ -19,6 +19,7 @@ class SecretModuleImporter:
 
     def __init__(self):
         self.secret_module = None
+        self.find_and_import_secret_module()
 
     def find_and_import_secret_module(self):
         """
@@ -27,16 +28,15 @@ class SecretModuleImporter:
         :return: True si el módulo fue encontrado y cargado con éxito, False de lo contrario.
         """
         current_dir = os.path.abspath(os.curdir)
-
         while True:
             try:
                 self.secret_module = importlib.import_module('secret')
+                # print("SECRET module found and imported!")
                 return True
             except ModuleNotFoundError:
                 parent_dir = os.path.dirname(current_dir)
 
                 if parent_dir == current_dir:
-                    # Condición de salida: Se ha alcanzado la raíz del sistema de archivos sin encontrar el módulo
                     print("SECRET module not found!")
                     return False
 
@@ -121,7 +121,7 @@ class SecureKeyManager:
         if key_name in self.encrypted_keys:
             return self.cipher.decrypt(self.encrypted_keys[key_name])
         else:
-            raise KeyError("Key not found")
+            raise KeyError(f"Key not found: {key_name}")
 
     def add_encrypted_key(self, key_name: str, key_value: str):
         """

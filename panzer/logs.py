@@ -3,13 +3,14 @@
 Logging functions
 
 """
-from typing import Union
+from typing import Union, List, Tuple
 import requests
 import logging
 from os import makedirs, path
 from logging.handlers import RotatingFileHandler
 import csv
 from requests.structures import CaseInsensitiveDict
+
 
 class LogManager:
     """
@@ -156,7 +157,7 @@ class APICallLogger:
             endpoint: str,
             url: str,
             status_code: int = None,
-            params: dict = None,
+            params: Union[dict, List[Tuple]] = None,
             request_headers: Union[dict, list, CaseInsensitiveDict] = None,
             response_headers: Union[dict, list, CaseInsensitiveDict] = None,
             body: str = None,
