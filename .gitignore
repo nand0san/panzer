@@ -122,3 +122,4 @@ conf.py
 *.md
 *.json
 .idea/
+deploy.bat
