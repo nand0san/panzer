@@ -10,34 +10,35 @@ from panzer.signatures import BinanceRequestSigner
 
 
 class BinanceAPILimitsManager:
+    """
+    Se establece el limit por cada tipo de mensaje header en la respuesta de la API. Se entiende que los header son
+    compartidos para todos los endpoints de la API que devuelvan ese tipo de header. Por ejemplo, el header
+    'X-SAPI-USED-IP-WEIGHT-1M' es compartido por todos los endpoints que devuelvan ese header.
+    """
     def __init__(self, info_level='INFO'):
 
         self.logger = LogManager(filename="limits.log", info_level=info_level)
         self.limits_response = self.get_exchange_limits()
         self.time_server_offset = self.get_server_time() - int(time() * 1000)
 
-        self.rate_limits = self.parse_weight_limits(self.limits_response)
+        self.rate_limits_ms = self.parse_weight_limits(self.limits_response)
 
         self.symbol_limits = pd.DataFrame(self.limits_response['symbols'])
 
-        self.header_limits = {'X-SAPI-USED-IP-WEIGHT-1M': self.rate_limits['REQUEST_1M'],
-                              'X-SAPI-USED-UID-WEIGHT-1M': self.rate_limits['REQUEST_1M'],
-                              'x-mbx-used-weight': self.rate_limits['REQUEST_5M'],
-                              'x-mbx-used-weight-1m': self.rate_limits['REQUEST_1M'],
-                              'x-mbx-order-count-10s': self.rate_limits['ORDERS_10S'],
-                              'x-mbx-order-count-1d': self.rate_limits['ORDERS_1D']}
+        self.endpoint_headers = {}
 
-        self.api_limits_weight_decrease_per_seconds = {'X-SAPI-USED-IP-WEIGHT-1M': self.rate_limits['REQUEST_1M'] // 60,
-                                                       'X-SAPI-USED-UID-WEIGHT-1M': self.rate_limits['REQUEST_1M'] // 60,
-                                                       'x-mbx-used-weight-1m': self.rate_limits['REQUEST_1M'] // 60,
-                                                       'x-mbx-used-weight': self.rate_limits['REQUEST_5M'] // (60 * 5),
-                                                       'x-mbx-order-count-10s': self.rate_limits['ORDERS_10S'] // 10,
-                                                       'x-mbx-order-count-1d': self.rate_limits['ORDERS_1D'] // (24 * 60 * 60)}
+        self.header_limits = {'X-SAPI-USED-IP-WEIGHT-1M': self.rate_limits_ms['REQUEST_1M'],
+                              'X-SAPI-USED-UID-WEIGHT-1M': self.rate_limits_ms['REQUEST_1M'],
+                              'x-mbx-used-weight': self.rate_limits_ms['REQUEST_5M'],
+                              'x-mbx-used-weight-1m': self.rate_limits_ms['REQUEST_1M'],
+                              'x-mbx-order-count-10s': self.rate_limits_ms['ORDERS_10S'],
+                              'x-mbx-order-count-1d': self.rate_limits_ms['ORDERS_1D']}
 
-        self.detected_endpoint_headers = {}
-        self.endpoint_enabled_timestamp = {}
+        self.current_header_weights = {}
+        self.header_renewal_timestamp = {}
 
-    def get_exchange_limits(self) -> dict:
+    @staticmethod
+    def get_exchange_limits() -> dict:
         """
         Consulta la información de los límites de la API de Binance haciendo una solicitud al endpoint /api/v3/exchangeInfo.
         Esta información ayuda a prevenir exceder los límites de la API, evitando así errores 429 (Too Many Requests) y posibles baneos IP.
@@ -119,8 +120,8 @@ class BinanceAPILimitsManager:
         :param str header: Header in response.
         :return: None
         """
-        if header not in self.detected_endpoint_headers.setdefault(endpoint, []):
-            self.detected_endpoint_headers[endpoint].append(header)
+        if header not in self.endpoint_headers.setdefault(endpoint, []):
+            self.endpoint_headers[endpoint].append(header)
             self.logger.info(f"Control de peso de cabeceras de endpoint actualizado: {endpoint} -> {header}")
 
     @staticmethod
@@ -143,7 +144,6 @@ class BinanceAPILimitsManager:
         """
         weight_headers = {}
         for k, v in response.headers.items():
-            # if 'WEIGHT' in k.upper() or 'COUNT' in k.upper() or k.startswith('x-') or k.startswith('X-'):
             if 'WEIGHT' in k.upper() or 'COUNT' in k.upper():
                 try:
                     weight_headers[k] = int(v)
@@ -154,35 +154,28 @@ class BinanceAPILimitsManager:
             self.logger.debug(f"Header from API response: {k}={v}")
         return weight_headers
 
-    def update(self, response: requests.Response, endpoint: str, register: bool = True):
+    def update(self, response: requests.Response, endpoint: str):
         """
         Update header weights. Headers are across endpoints.
         """
         headers_weight = self.parse_response_headers(response)
 
-        for header in headers_weight:
-            if register:
-                self.register_header_for_endpoint(endpoint=endpoint, header=header)
-            self.update_header_enabled_timestamp(header=header, current_weight=headers_weight.get(header, 0))
+        for header, weight in headers_weight.items():
+            self.register_header_for_endpoint(endpoint=endpoint, header=header)
+            self.current_header_weights[header] = weight
 
-    def update_header_enabled_timestamp(self, header: str, current_weight: int):
+    def get_limit_refresh_timestamp_ms(self, header: str) -> int:
         """
-        Update the header timestamp enabled for the endpoint.
+        Get the timestamp in milliseconds when the limit will be refreshed.
 
-        :param str header: Header name.
-        :param int current_weight: Current weight of the header.
+        :param header: Header name.
+        :return: Timestamp of the limit refresh in milliseconds.
         """
-        try:
-            limit = self.header_limits.get(header, 0)
-        except KeyError:
-            raise KeyError(f"Header {header} not found in header limits: {self.header_limits}")
-
-        if current_weight > limit:
-            self.logger.debug(f"Header {header} current weight {current_weight} is over the limit {limit}.")
-            excess_weight = current_weight - limit  # > 0
-            excess_seconds = excess_weight // self.api_limits_weight_decrease_per_seconds[header]
-            enabled_timestamp = int(time() * 1000) + self.time_server_offset + int(excess_seconds * 1000)
-            self.endpoint_enabled_timestamp[header] = enabled_timestamp
+        limit_ms = self.rate_limits_ms[header]
+        now = int(time() * 1000) + self.time_server_offset
+        cycle_ms = now % limit_ms
+        remaining_ms = limit_ms - cycle_ms
+        return now + remaining_ms
 
     def check_and_wait_timestamp(self, endpoint: str):
         """
@@ -191,44 +184,47 @@ class BinanceAPILimitsManager:
         :param str endpoint: Endpoint requested.
         :return: True if the timestamp is enabled, False otherwise.
         """
-        enabled_timestamp = self.endpoint_enabled_timestamp.get(endpoint, 0)
-        current_time = int(time() * 1000) + self.time_server_offset
-        if current_time > enabled_timestamp:
-            self.endpoint_enabled_timestamp[endpoint] = current_time
-            return
-        else:
-            self.logger.warning(f"Timestamp {current_time} is in the past for endpoint {endpoint}.")
-            # seconds until timestamp is enabled
-            seconds = (enabled_timestamp - current_time) / 1000
-            self.logger.warning(f"Waiting {seconds} seconds until timestamp is enabled.")
+        for header in self.endpoint_headers.get(endpoint, []):
+            header_current_weight = self.current_header_weights.get(header, 0)
+            header_weight_limit = self.header_limits[header]
 
-            # We take the opportunity to update the endpoint timestamp
-            self.time_server_offset = self.get_server_time() - int(time() * 1000)
-            sleep(seconds)
+            if header_current_weight < header_weight_limit:
+                continue
+            else:
+                self.logger.warning(f"Header {header} has reached the limit of {header_weight_limit} with {header_current_weight}.")
+                refresh_timestamp = self.get_limit_refresh_timestamp_ms(header=header)
 
-            self.endpoint_enabled_timestamp[endpoint] = int(time() * 1000) + self.time_server_offset
+                # We take the opportunity to update the endpoint timestamp
+                self.time_server_offset = self.get_server_time() - int(time() * 1000)
+
+                now = int(time() * 1000) + self.time_server_offset
+                seconds_wait = (refresh_timestamp - now) / 1000
+                self.logger.warning(f"Waiting {seconds_wait} seconds until timestamp is enabled.")
+                sleep(max(seconds_wait, 0))
+                break  # esto es por si hay más de una cabecera en el endpoint, no queremos esperar más de una vez
 
 
 if __name__ == "__main__":
 
     def fetch(symbol: str = 'BTCUSDT',
-              fromId=0,
+              # fromId=0,
               limits: BinanceAPILimitsManager = None):
 
         base_url = 'https://api.binance.com'
-        # endpoint = '/api/v3/allOrders'
-        endpoint = '/api/v3/aggTrades'
+        endpoint = '/api/v3/allOrders'
+        # endpoint = '/api/v3/aggTrades'
         url = urljoin(base_url, endpoint)
 
-        params = {'symbol': symbol, 'fromId': fromId, "limit": 1000}
+        # params = {'symbol': symbol, 'fromId': fromId, "limit": 1000}
+        params = {'symbol': symbol}
 
         signer = BinanceRequestSigner()
         headers = signer.add_api_key_to_headers(headers={})
-        # params = signer.sign_params(params=list(params.items()), add_timestamp=True)
+        params = signer.sign_params(params=list(params.items()), add_timestamp=True)
 
         limits.check_and_wait_timestamp(endpoint=endpoint)
         response = requests.get(url, params=params, headers=headers)
-        limits.update(response=response, endpoint=endpoint, register=True)
+        limits.update(response=response, endpoint=endpoint)
 
         print("\nRespuesta:")
         print("Cabeceras:")
@@ -236,15 +232,18 @@ if __name__ == "__main__":
             if 'WEIGHT' in k.upper() or 'COUNT' in k.upper():
                 print(k, value)
         # print("Cuerpo de respuesta:", response.json())
+        # status
+        print("Status:", response.status_code, response.reason)
         return response.json()
 
 
     limits = BinanceAPILimitsManager(info_level="INFO")
-    print(limits.header_limits)
+    print(limits.rate_limits_ms)
 
     fromId = 0
 
     for i in range(100):
-        resp = fetch(limits=limits, fromId=fromId)
-        fromId = resp[-1]['a']
-        sleep(1)
+        resp = fetch(limits=limits,)
+        # fromId=fromId)
+        # fromId = resp[-1]['a']
+        # sleep(1)
