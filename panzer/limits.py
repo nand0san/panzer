@@ -11,52 +11,50 @@ from panzer.signatures import BinanceRequestSigner
 
 class BinanceAPILimitsManager:
     """
-    Se establece el limit por cada tipo de mensaje header en la respuesta de la API. Se entiende que los header son
-    compartidos para todos los endpoints de la API que devuelvan ese tipo de header. Por ejemplo, el header
-    'X-SAPI-USED-IP-WEIGHT-1M' es compartido por todos los endpoints que devuelvan ese header.
+    Manages the API limits for each type of header in the response from the Binance API. Assumes that headers are shared across all API endpoints
+    returning that type of header. For instance, the 'X-SAPI-USED-IP-WEIGHT-1M' header is shared by all endpoints that return it. This class helps
+    in preventing exceeding the API's rate limits, thus avoiding HTTP 429 (Too Many Requests) errors and possible IP bans by dynamically adjusting
+    request rates according to the limits.
     """
-    def __init__(self, info_level='INFO'):
 
+    def __init__(self, info_level='INFO'):
+        """
+        Initializes the Binance API limits manager with logging, current limits, and server time offset.
+
+        :param info_level: The logging level for the LogManager. Defaults to 'INFO'.
+        """
         self.logger = LogManager(filename="limits.log", info_level=info_level)
         self.limits_response = self.get_exchange_limits()
         self.time_server_offset = self.get_server_time() - int(time() * 1000)
-
         self.rate_limits_ms = self.parse_weight_limits(self.limits_response)
-
         self.symbol_limits = pd.DataFrame(self.limits_response['symbols'])
-
         self.endpoint_headers = {}
-
         self.header_limits = {'X-SAPI-USED-IP-WEIGHT-1M': self.rate_limits_ms['REQUEST_1M'],
                               'X-SAPI-USED-UID-WEIGHT-1M': self.rate_limits_ms['REQUEST_1M'],
                               'x-mbx-used-weight': self.rate_limits_ms['REQUEST_5M'],
                               'x-mbx-used-weight-1m': self.rate_limits_ms['REQUEST_1M'],
                               'x-mbx-order-count-10s': self.rate_limits_ms['ORDERS_10S'],
                               'x-mbx-order-count-1d': self.rate_limits_ms['ORDERS_1D']}
-
         self.current_header_weights = {}
         self.header_renewal_timestamp = {}
 
     @staticmethod
     def get_exchange_limits() -> dict:
         """
-        Consulta la información de los límites de la API de Binance haciendo una solicitud al endpoint /api/v3/exchangeInfo.
-        Esta información ayuda a prevenir exceder los límites de la API, evitando así errores 429 (Too Many Requests) y posibles baneos IP.
+        Fetches the API limits information from Binance by making a request to the /api/v3/exchangeInfo endpoint.
+        This information is crucial for preventing API rate limit violations.
 
-        Tipos de Límites:
-        - REQUEST_WEIGHT: Aplicado al peso total de las solicitudes en un intervalo de tiempo. Cada solicitud tiene un peso asignado,
-          reflejando su coste de procesamiento. Afecta a la mayoría de las solicitudes de la API.
-        - ORDERS: Específico para solicitudes de creación o cancelación de órdenes, limitando la cantidad permitida en un intervalo de
-        tiempo.
-        - RAW_REQUESTS: Refiere al número total de solicitudes HTTP, independiente de su peso o tipo. Limita el número total de solicitudes.
+        Limit Types:
+        - REQUEST_WEIGHT: Applied to the total request weight in a time frame. Each request has an assigned weight,
+          reflecting its processing cost. It affects most API requests.
+        - ORDERS: Specific to order creation or cancellation requests, limiting the number allowed in a timeframe.
+        - RAW_REQUESTS: Refers to the total number of HTTP requests, regardless of their weight or type. It limits the total request count.
 
-        Formato de los Datos de Respuesta:
-        - rateLimitType: Tipo de límite (REQUEST_WEIGHT, ORDERS, RAW_REQUESTS).
-        - interval: Unidad de tiempo para el límite (SEGUNDO, MINUTO, HORA, DÍA).
-        - intervalNum: Cantidad de la unidad de tiempo.
-        - limit: Máximo permitido en el intervalo especificado.
-
-        Ejemplo de Datos de Respuesta de la key 'rateLimits' en la respuesta de la API:
+        Response Data Format:
+        - rateLimitType: The limit type (REQUEST_WEIGHT, ORDERS, RAW_REQUESTS).
+        - interval: Time unit for the limit (SECOND, MINUTE, HOUR, DAY).
+        - intervalNum: Number of time units.
+        - limit: Maximum allowed in the specified interval.
 
         .. code-block:: python
 
@@ -68,30 +66,26 @@ class BinanceAPILimitsManager:
                 {'rateLimitType': 'RAW_REQUESTS', 'interval': 'MINUTE', 'intervalNum': 5, 'limit': 61000}
             ]
 
-        Estos datos permiten ajustar dinámicamente las solicitudes a la API para cumplir con los límites establecidos y mantener una
-        integración eficiente y respetuosa con la API de Binance.
         """
         response = requests.get(url=BINANCE_LIMITS_URL, params=None, headers=None)
         return response.json()
 
     def parse_weight_limits(self, response: Dict) -> Dict[str, int]:
         """
-        Parsea la respuesta de la API para obtener los límites de peso.
+        Parses the API response to obtain weight limits for rate limiting purposes.
 
-        Ejemplo:
+        Example:
 
-        .. code-block:: python
-
-             {'REQUEST_1M': 6000,
-              'ORDERS_10S': 100,
-              'ORDERS_1D': 200000,
-              'REQUEST_5M': 61000}
-
+            {'REQUEST_1M': 6000,
+             'ORDERS_10S': 100,
+             'ORDERS_1D': 200000,
+             'REQUEST_5M': 61000}
         """
         try:
             limits = response['rateLimits']
         except KeyError:
-            self.logger.error(f"Error: No se encontraron límites en la respuesta: {response}, aplicando límites por defecto.")
+            self.logger.error(f"Error: No limits found in the response: {response}, applying default limits.")
+            # Default limits if not found in the response
             limits = [{'rateLimitType': 'REQUEST_WEIGHT', 'interval': 'MINUTE', 'intervalNum': 1, 'limit': 6000},
                       {'rateLimitType': 'ORDERS', 'interval': 'SECOND', 'intervalNum': 10, 'limit': 100},
                       {'rateLimitType': 'ORDERS', 'interval': 'DAY', 'intervalNum': 1, 'limit': 200000},
@@ -100,12 +94,10 @@ class BinanceAPILimitsManager:
         limits_dict = {}
         for limit in limits:
             if 'REQUEST' in limit['rateLimitType']:
-                interval = str(limit['intervalNum'])
-                interval += limit['interval'][0]
+                interval = f"{limit['intervalNum']}{limit['interval'][0]}"
                 limits_dict[f'REQUEST_{interval}'] = limit['limit']
             elif 'ORDERS' in limit['rateLimitType']:
-                interval = str(limit['intervalNum'])
-                interval += limit['interval'][0]
+                interval = f"{limit['intervalNum']}{limit['interval'][0]}"
                 limits_dict[f'ORDERS_{interval}'] = limit['limit']
             else:
                 msg = f"BinPan error: Unknown limit from API: {limit}"
@@ -114,22 +106,21 @@ class BinanceAPILimitsManager:
 
     def register_header_for_endpoint(self, endpoint: str, header: str):
         """
-        Adds API headers response info for weight control. It is an inventory of headers for each endpoint.
+        Registers API header information for weight control, maintaining an inventory of headers for each endpoint.
 
-        :param str endpoint: Endpoint path.
-        :param str header: Header in response.
-        :return: None
+        :param endpoint: The API endpoint path.
+        :param header: The response header to be registered.
         """
         if header not in self.endpoint_headers.setdefault(endpoint, []):
             self.endpoint_headers[endpoint].append(header)
-            self.logger.info(f"Control de peso de cabeceras de endpoint actualizado: {endpoint} -> {header}")
+            self.logger.info(f"Endpoint header weight control updated: {endpoint} -> {header}")
 
     @staticmethod
     def get_server_time(base_url='https://api.binance.com', endpoint='/api/v3/time') -> int:
         """
-        Get time from server.
+        Fetches the current server time from the Binance API.
 
-        :return int: A linux timestamp in milliseconds.
+        :return: The server time as a Unix timestamp in milliseconds.
         """
         url = urljoin(base_url, endpoint)
         response = requests.get(url=url, params=None, headers=None)
@@ -137,10 +128,10 @@ class BinanceAPILimitsManager:
 
     def parse_response_headers(self, response: requests.Response) -> Dict[str, int]:
         """
-        Parsea las cabeceras de la respuesta de la API para obtener los pesos de las solicitudes.
+        Parses API response headers to obtain the weights of the requests.
 
-        :param response: Respuesta de la API.
-        :return: Un diccionario con los pesos de las solicitudes.
+        :param response: The API response.
+        :return: A dictionary containing the weights of the requests.
         """
         weight_headers = {}
         for k, v in response.headers.items():
@@ -148,15 +139,14 @@ class BinanceAPILimitsManager:
                 try:
                     weight_headers[k] = int(v)
                 except ValueError:
-                    self.logger.debug(f"Error al convertir el valor de la cabecera {k}={v} a entero.")
+                    self.logger.debug(f"Failed to convert header value to integer: {k}={v}.")
                     continue
-            # weight_headers = {k: int(v) for k, v in response.headers.items() if 'WEIGHT' in k.upper() or 'COUNT' in k.upper()}
             self.logger.debug(f"Header from API response: {k}={v}")
         return weight_headers
 
     def update(self, response: requests.Response, endpoint: str):
         """
-        Update header weights. Headers are across endpoints.
+        Updates header weights based on the API response. This method is used for across-endpoint header weight control.
         """
         headers_weight = self.parse_response_headers(response)
 
@@ -166,10 +156,10 @@ class BinanceAPILimitsManager:
 
     def get_limit_refresh_timestamp_ms(self, header: str) -> int:
         """
-        Get the timestamp in milliseconds when the limit will be refreshed.
+        Calculates the timestamp in milliseconds when a header's limit will be refreshed.
 
-        :param header: Header name.
-        :return: Timestamp of the limit refresh in milliseconds.
+        :param header: The header name.
+        :return: The refresh timestamp in milliseconds.
         """
         limit_ms = self.rate_limits_ms[header]
         now = int(time() * 1000) + self.time_server_offset
@@ -179,10 +169,9 @@ class BinanceAPILimitsManager:
 
     def check_and_wait_timestamp(self, endpoint: str):
         """
-        Check if the timestamp is enabled for the endpoint.
+        Checks and waits for a timestamp to become available for a given endpoint.
 
-        :param str endpoint: Endpoint requested.
-        :return: True if the timestamp is enabled, False otherwise.
+        :param endpoint: The requested API endpoint.
         """
         for header in self.endpoint_headers.get(endpoint, []):
             header_current_weight = self.current_header_weights.get(header, 0)
@@ -191,17 +180,15 @@ class BinanceAPILimitsManager:
             if header_current_weight < header_weight_limit:
                 continue
             else:
-                self.logger.warning(f"Header {header} has reached the limit of {header_weight_limit} with {header_current_weight}.")
+                self.logger.warning(f"Header {header} reached its limit of {header_weight_limit} with {header_current_weight}.")
                 refresh_timestamp = self.get_limit_refresh_timestamp_ms(header=header)
-
-                # We take the opportunity to update the endpoint timestamp
+                # Update the endpoint timestamp
                 self.time_server_offset = self.get_server_time() - int(time() * 1000)
-
                 now = int(time() * 1000) + self.time_server_offset
                 seconds_wait = (refresh_timestamp - now) / 1000
-                self.logger.warning(f"Waiting {seconds_wait} seconds until timestamp is enabled.")
+                self.logger.warning(f"Waiting {seconds_wait} seconds until timestamp is available.")
                 sleep(max(seconds_wait, 0))
-                break  # esto es por si hay más de una cabecera en el endpoint, no queremos esperar más de una vez
+                break  # Prevent multiple waits for endpoints with more than one header
 
 
 if __name__ == "__main__":
