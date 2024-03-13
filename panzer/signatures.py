@@ -1,14 +1,23 @@
-import hmac
 import hashlib
+import hmac
 import time
-import requests
 from typing import Union, List, Tuple
+
 from panzer.keys import SecureKeyManager, SecretModuleImporter
-from urllib.parse import urljoin
 from panzer.logs import APICallLogger
 
 
 class BinanceRequestSigner:
+    """
+    Security Type	Description
+    ---------------------------
+    NONE	Endpoint can be accessed freely.
+    TRADE	Endpoint requires sending a valid API-Key and signature.
+    MARGIN	Endpoint requires sending a valid API-Key and signature.
+    USER_DATA	Endpoint requires sending a valid API-Key and signature.
+    USER_STREAM	Endpoint requires sending a valid API-Key.
+    MARKET_DATA	Endpoint requires sending a valid API-Key.
+    """
     def __init__(self,
                  api_key_string: str = "api_key",
                  secret_key_string: str = "api_secret"):
@@ -32,15 +41,18 @@ class BinanceRequestSigner:
     def get_secret_key(self) -> str:
         return self.key_manager.get_key(self.secret_key_string)
 
-    def sign_and_send_request(self,
-                              params: List[Tuple[str, Union[int, str]]],
-                              endpoint: str,
-                              url: str = 'https://api.binance.com/',
-                              method: str = 'POST') -> requests.Response:
+    def add_api_key_to_headers(self, headers: dict) -> dict:
+        headers['X-MBX-APIKEY'] = self.get_api_key()
+        return headers
 
-        now = int(time.time() * 1000)
-        ts = ('timestamp', now,)
-        params.append(ts)
+    def sign_params(self,
+                    params: List[Tuple[str, Union[int, str]]],
+                    add_timestamp: bool = False,
+                    ) -> List[Tuple[str, Union[int, str]]]:
+        if add_timestamp:
+            now = int(time.time() * 1000)
+            ts = ('timestamp', now,)
+            params.append(ts)
 
         # Convertir la lista de tuplas a una cadena de consulta
         query_string = '&'.join([f'{key}={value}' for key, value in params])
@@ -50,31 +62,7 @@ class BinanceRequestSigner:
                              msg=query_string.encode(),
                              digestmod=hashlib.sha256).hexdigest()
         params.append(('signature', signature))
-
-        full_url = urljoin(url, endpoint)
-        headers = {'X-MBX-APIKEY': self.get_api_key()}
-        data = dict(params)
-
-        # Enviar la petición
-        if method.upper() == 'POST':
-            response = requests.post(url=full_url, headers=headers, data=data)
-        elif method.upper() == 'GET':
-            response = requests.get(url=full_url, headers=headers, params=data)
-        else:
-            raise ValueError(f"Unsupported request method: {method}")
-
-        self.api_learn_logger.log(method=method,
-                                  base_url=url,
-                                  endpoint=endpoint,
-                                  url=full_url,
-                                  status_code=response.status_code,
-                                  params=params,
-                                  request_headers=headers,
-                                  response_headers=response.headers,
-                                  body=response.text,
-                                  json_response=response.json(),
-                                  error=response.text if response.status_code != 200 else None)
-        return response
+        return params
 
 
 if __name__ == "__main__":
@@ -87,12 +75,13 @@ if __name__ == "__main__":
     # ('quantity', '1'),
     # ('price', '0.1'),]
 
-    response = signer.sign_and_send_request(params=params,
-                                            endpoint='/api/v3/allOrders',
-                                            url='https://api.binance.com/',
-                                            method='GET')
-    print(response.status_code)
-    print(response.json())
-
-    # muestra headers de respuesta
-    print(response.headers)
+    signature = signer.sign_params(params=params, )
+    #                                         endpoint='/api/v3/allOrders',
+    #                                         url='https://api.binance.com/',
+    #                                         method='GET')
+    # print(response.status_code)
+    # print(response.json())
+    #
+    # # muestra headers de respuesta
+    # print(response.headers)
+    print(signature)
