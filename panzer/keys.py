@@ -13,19 +13,18 @@ from typing import Union
 
 class SecretModuleImporter:
     """
-    Clase para buscar e importar de manera flexible el módulo 'secret.py'
-    desde cualquier lugar en la jerarquía de directorios del proyecto.
+    Class for flexibly searching and importing the 'secret.py' module
+    from anywhere within the project directory hierarchy.
     """
-
     def __init__(self):
         self.secret_module = None
         self.find_and_import_secret_module()
 
-    def find_and_import_secret_module(self):
+    def find_and_import_secret_module(self) -> bool:
         """
-        Busca y importa el módulo 'secret.py'.
+        Searches for and imports the 'secret.py' module.
 
-        :return: True si el módulo fue encontrado y cargado con éxito, False de lo contrario.
+        :return: True if the module was found and successfully loaded, False otherwise.
         """
         current_dir = os.path.abspath(os.curdir)
         while True:
@@ -36,7 +35,7 @@ class SecretModuleImporter:
             except ModuleNotFoundError:
                 parent_dir = os.path.dirname(current_dir)
 
-                if parent_dir == current_dir:
+                if parent_dir == current_dir:  # it is at the top of the file system
                     print("SECRET module not found!")
                     return False
 
@@ -45,10 +44,10 @@ class SecretModuleImporter:
 
     def get_secret(self, secret_name: str) -> Union[None, str]:
         """
-        Obtiene un secreto por nombre desde el módulo 'secret' importado.
+        Retrieves a secret by name from the imported 'secret' module.
 
-        :param secret_name: El nombre del secreto a obtener.
-        :return: El valor del secreto si existe, None de lo contrario.
+        :param secret_name: The name of the secret to retrieve.
+        :return: The value of the secret if it exists, None otherwise.
         """
         if self.secret_module and hasattr(self.secret_module, secret_name):
             return getattr(self.secret_module, secret_name)
@@ -59,9 +58,9 @@ class SecretModuleImporter:
 
 class AesCipher(object):
     """
-    Objeto de cifrado.
+    Encryption object.
 
-    Función de inicialización. Genera una clave y un vector de inicialización basados en la información de la CPU y el home del usuario.
+    Initialization function. Generates a key and an initialization vector based on the CPU information and the user's home directory.
     """
 
     def __init__(self):
@@ -71,10 +70,10 @@ class AesCipher(object):
 
     def encrypt(self, msg: str) -> str:
         """
-        Función de cifrado. Cifra un mensaje con AES-128-CBC.
+        Encryption function. Encrypts a message using AES-128-CBC.
 
-        :param str msg: Cualquier mensaje a cifrar.
-        :return str: Una cadena en base64 de bytes.
+        :param msg: Any message to encrypt.
+        :return: A base64 encoded string of bytes.
         """
         msg_padded = pad(msg.encode(), AES.block_size)
         cipher = AES.new(unhexlify(self.__key), AES.MODE_CBC, unhexlify(self.__iv))
@@ -83,19 +82,21 @@ class AesCipher(object):
 
     def decrypt(self, msg_encrypted: str) -> str:
         """
-        Función de descifrado. Descifra un mensaje con AES-128-CBC.
+        Decryption function. Decrypts a message using AES-128-CBC.
 
-        :param str msg_encrypted: Una cadena en base64 de bytes.
-        :return str: Texto plano.
+        :param msg_encrypted: A base64 encoded string of bytes.
+        :return: Plain text.
         """
         decipher = AES.new(unhexlify(self.__key), AES.MODE_CBC, unhexlify(self.__iv))
         plaintext = unpad(decipher.decrypt(b64decode(msg_encrypted)), AES.block_size).decode('utf-8')
         return plaintext
 
 
-class SecureKeyManager:
+class SecureKeychain:
     """
-    Gestor de claves seguras. Mantiene las claves en memoria de forma cifrada y las proporciona descifradas bajo demanda.
+    Manages secure keys. It keeps keys encrypted in memory and provides them decrypted on demand. This class utilizes an
+    encryption cipher for the encryption and decryption of key values, ensuring that sensitive information is not
+    stored or used in plain text.
     """
 
     def __init__(self):
@@ -104,42 +105,42 @@ class SecureKeyManager:
 
     def add_key(self, key_name: str, key_value: str):
         """
-        Añade una clave al gestor, cifrándola antes de almacenarla.
+        Adds a key to the manager, encrypting it before storage.
 
-        :param str key_name: El nombre de la clave.
-        :param str key_value: El valor de la clave.
+        :param key_name: The name of the key.
+        :param key_value: The value of the key.
         """
         self.encrypted_keys[key_name] = self.cipher.encrypt(key_value)
 
     def get_key(self, key_name: str) -> str:
         """
-        Obtiene una clave del gestor, descifrando su valor.
+        Retrieves a key from the manager, decrypting its value.
 
-        :param str key_name: El nombre de la clave.
-        :return str: El valor de la clave descifrado.
+        :param key_name: The name of the key to retrieve.
+        :return: The decrypted value of the key.
         """
         if key_name in self.encrypted_keys:
             return self.cipher.decrypt(self.encrypted_keys[key_name])
         else:
             raise KeyError(f"Key not found: {key_name}")
 
-    def add_encrypted_key(self, key_name: str, key_value: str):
+    def add_encrypted_key(self, key_name: str, key_value: str) -> None:
         """
-        Añade una clave al gestor, sin cifrarla.
+         Adds a key to the manager without encrypting it, assuming the key is already encrypted.
 
-        :param str key_name: El nombre de la clave.
-        :param str key_value: El valor de la clave.
-        """
+         :param key_name: The name of the key.
+         :param key_value: The already encrypted value of the key.
+         """
         self.encrypted_keys[key_name] = key_value
 
     def get_encrypted_key(self, key_name: str) -> str:
         """
-        Obtiene una clave del gestor, sin descifrar su valor.
+        Retrieves an encrypted key from the manager without decrypting its value.
 
-        :param str key_name: El nombre de la clave.
-        :return str: El valor de la clave sin descifrar.
+        :param key_name: The name of the key to retrieve.
+        :return: The encrypted value of the key.
         """
         if key_name in self.encrypted_keys:
             return self.encrypted_keys[key_name]
         else:
-            raise KeyError("Key not found")
+            raise KeyError(f"Key not found: {key_name}")

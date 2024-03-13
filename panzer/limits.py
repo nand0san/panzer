@@ -6,7 +6,7 @@ import requests
 
 from panzer.binance_api_map import *
 from panzer.logs import LogManager
-from panzer.signatures import BinanceRequestSigner
+from panzer.signatures import RequestSigner
 
 
 class BinanceAPILimitsManager:
@@ -205,7 +205,7 @@ if __name__ == "__main__":
         # params = {'symbol': symbol, 'fromId': fromId, "limit": 1000}
         params = {'symbol': symbol}
 
-        signer = BinanceRequestSigner()
+        signer = RequestSigner()
         headers = signer.add_api_key_to_headers(headers={})
         params = signer.sign_params(params=list(params.items()), add_timestamp=True)
 
