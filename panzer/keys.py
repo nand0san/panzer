@@ -15,10 +15,14 @@ class SecretModuleImporter:
     """
     Class for flexibly searching and importing the 'secret.py' module
     from anywhere within the project directory hierarchy.
+
+    :param ask_for_missing: If True, the class will ask for missing keys and add them to the secret module ciphered.
     """
-    def __init__(self):
+    def __init__(self, ask_for_missing: bool = True):
         self.secret_module = None
         self.find_and_import_secret_module()
+        self.ask_missing = ask_for_missing
+        self.cipher = AesCipher()
 
     def find_and_import_secret_module(self) -> bool:
         """
@@ -30,7 +34,7 @@ class SecretModuleImporter:
         while True:
             try:
                 self.secret_module = importlib.import_module('secret')
-                # print("SECRET module found and imported!")
+                print("SECRET module found and imported!")
                 return True
             except ModuleNotFoundError:
                 parent_dir = os.path.dirname(current_dir)
@@ -52,8 +56,78 @@ class SecretModuleImporter:
         if self.secret_module and hasattr(self.secret_module, secret_name):
             return getattr(self.secret_module, secret_name)
         else:
-            print(f"Secret '{secret_name}' not found in module.")
-            return None
+            if self.ask_missing:
+                self.add_key_to_secret(key_name=secret_name)
+                return self.get_secret(secret_name=secret_name)
+            else:
+                raise Exception(f"Secret '{secret_name}' not found in module.")
+
+    def add_key_to_secret(self, key_name: str) -> None:
+        """
+        Checks if exists in a file and if not, then adds a line with the api key value for working with the package.
+
+        :param str key_name: Variable name to import it later.
+        """
+        assert type(key_name) == str, "The key name must be a string."
+        filename = "secret.py"
+        saved_data = self.read_file(filename=filename)
+        lines = []
+        for line in saved_data:
+            if line:
+                if not line.strip().startswith(key_name):
+                    lines.append(line.strip())
+        new_key = input(f"Missing key '{key_name}'. Please enter the value: ")
+
+        encrypted = self.cipher.encrypt(new_key)
+        lines.append(f'{key_name} = "{encrypted}"')
+        self.save_file(filename=filename, data=lines)
+        # import again the module
+        self.unload_imported_module()
+        self.find_and_import_secret_module()
+
+    @staticmethod
+    def read_file(filename: str) -> list:
+        """
+        Read a file to a list of strings each line.
+
+        :return list: list with a string each row in the file.
+        """
+        if not os.path.isfile(filename):
+            return []
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+            lines = [line.rstrip() for line in lines if line]
+        return lines
+
+    @staticmethod
+    def save_file(filename: str, data: list, mode='w') -> None:
+        """
+        Save a new file from a list of lists each line.
+
+        :param str filename: a file name to save.
+        :param list data: Data in a list of strings each line.
+        :param str mode: 'w' to rewrite full file or 'a' to append to existing file.
+
+        """
+        with open(filename, mode) as f:
+            for line in sorted(data):
+                f.write(str(line) + '\n')
+
+    def unload_imported_module(self):
+        """
+        Unloads the imported 'secret' module, allowing it to be re-imported to reflect any changes.
+        """
+        module_name = 'secret'
+        if module_name in sys.modules:
+            del sys.modules[module_name]
+            # print("SECRET module unloaded!")
+            self.secret_module = None
+
+    def __str__(self):
+        return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
+
+    def __repr__(self):
+        return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
 
 
 class AesCipher(object):

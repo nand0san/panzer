@@ -4,7 +4,7 @@ import time
 from typing import Union, List, Tuple
 
 from panzer.keys import SecureKeychain, SecretModuleImporter
-from panzer.logs import APICallLogger
+from panzer.logs import APICallMapper
 
 
 class RequestSigner:
@@ -38,7 +38,7 @@ class RequestSigner:
         self.key_manager.add_encrypted_key(key_name=self.api_key_string, key_value=self.api_key)
         self.key_manager.add_encrypted_key(key_name=self.secret_key_string, key_value=self.secret_key)
 
-        self.api_learn_logger = APICallLogger(log_file='api_learn_logger.csv')
+        self.api_learn_logger = APICallMapper(log_file='api_learn_logger.csv')
 
     def get_api_key(self) -> str:
         """

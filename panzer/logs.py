@@ -128,7 +128,7 @@ def describe_structure(data):
     return description
 
 
-class APICallLogger:
+class APICallMapper:
     """
     Logs details about API calls to a CSV file.
     """
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     }
 
     def test_binance_api_klines():
-        call_logger = APICallLogger(log_file='binance_api_calls.csv')
+        call_logger = APICallMapper(log_file='binance_api_calls.csv')
 
         with call_logger as logger:
             try:
