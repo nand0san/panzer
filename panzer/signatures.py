@@ -3,8 +3,8 @@ import hmac
 import time
 from typing import Union, List, Tuple
 
-from panzer.keys import SecureKeychain, SecretModuleImporter
-from panzer.logs import APICallMapper
+from panzer.keys import SecureKeychain
+from panzer.logs import APICallMapper, LogManager
 
 
 class RequestSigner:
@@ -18,25 +18,25 @@ class RequestSigner:
     - USER_STREAM, MARKET_DATA: Endpoints require sending a valid API-Key.
     """
     def __init__(self,
-                 api_key_string: str = "api_key",
-                 secret_key_string: str = "api_secret"):
+                 api_key_string_encoded: str = "api_key",
+                 secret_key_string_encoded: str = "api_secret"):
         """
         Initializes the Binance request signer with API and secret keys retrieved from a secure storage.
 
-        :param api_key_string: The name of the API key in the secret storage.
-        :param secret_key_string: The name of the secret key in the secret storage.
+        :param api_key_string_encoded: The name of the API key in the secret storage.
+        :param secret_key_string_encoded: The name of the secret key in the secret storage.
         """
 
-        self.api_key_string = api_key_string
-        self.secret_key_string = secret_key_string
+        self.api_key_string = api_key_string_encoded
+        self.secret_key_string = secret_key_string_encoded
 
         self.secret_module_importer = SecretModuleImporter()
-        self.api_key = self.secret_module_importer.get_secret(secret_name=api_key_string)
-        self.secret_key = self.secret_module_importer.get_secret(secret_name=secret_key_string)
+        self.api_key = self.secret_module_importer.get_secret(secret_name=api_key_string_encoded)
+        self.secret_key = self.secret_module_importer.get_secret(secret_name=secret_key_string_encoded)
 
         self.key_manager = SecureKeychain()
-        self.key_manager.add_encrypted_key(key_name=self.api_key_string, key_value=self.api_key)
-        self.key_manager.add_encrypted_key(key_name=self.secret_key_string, key_value=self.secret_key)
+        self.key_manager.add_key(key_name=self.api_key_string, key_value=self.api_key)
+        self.key_manager.add_key(key_name=self.secret_key_string, key_value=self.secret_key)
 
         self.api_learn_logger = APICallMapper(log_file='api_learn_logger.csv')
 
@@ -46,7 +46,7 @@ class RequestSigner:
 
         :return: The API key as a string.
         """
-        return self.key_manager.get_key(self.api_key_string)
+        return self.key_manager.get_decrypted_key(self.api_key_string)
 
     def get_secret_key(self) -> str:
         """
@@ -54,7 +54,7 @@ class RequestSigner:
 
         :return: The secret key as a string.
         """
-        return self.key_manager.get_key(self.secret_key_string)
+        return self.key_manager.get_decrypted_key(self.secret_key_string)
 
     def add_api_key_to_headers(self, headers: dict) -> dict:
         """

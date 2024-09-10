@@ -1,12 +1,143 @@
 from time import time, sleep
-from typing import Dict
+from typing import Dict, List
 from urllib.parse import urljoin
 import pandas as pd
 import requests
 
-from panzer.binance_api_map import *
 from panzer.logs import LogManager
 from panzer.signatures import RequestSigner
+from panzer.binance_api_map import *
+from secret import api_key, api_secret
+
+
+class BinanceLimitsFetcher:
+
+    def __init__(self):
+        self.BASE_URL = BASE_URL
+        self.EXCHANGE_INFO_ENDPOINT = EXCHANGE_INFO_ENDPOINT
+        self.MARGIN_ACCOUNT_ENDPOINT = MARGIN_ACCOUNT_ENDPOINT
+        self.FUTURES_BASE_URL = FUTURES_BASE_URL
+        self.FUTURES_EXCHANGE_INFO_ENDPOINT = FUTURES_EXCHANGE_INFO_ENDPOINT
+
+        self.url = urljoin(self.BASE_URL, self.EXCHANGE_INFO_ENDPOINT)
+
+        self.spot_url = urljoin(self.BASE_URL, self.EXCHANGE_INFO_ENDPOINT)
+        self.margin_url = urljoin(self.BASE_URL, self.MARGIN_ACCOUNT_ENDPOINT)
+        self.futures_url = urljoin(self.FUTURES_BASE_URL, self.FUTURES_EXCHANGE_INFO_ENDPOINT)
+
+        self.signer = RequestSigner(api_key_string_encoded=api_key, secret_key_string_encoded=api_secret)
+
+    @staticmethod
+    def _get_limits(url: str) -> Dict[str, Dict[str, str]]:
+        """
+        Fetches and returns the limits from a given URL endpoint.
+
+        :param url: The API endpoint to fetch limits from.
+        :return: A dictionary of limits.
+        """
+        response = requests.get(url)
+        if response.status_code != 200:
+            raise Exception(f"Error fetching limits from {url}: {response.status_code} - {response.text}")
+
+        return response.json()
+
+    @staticmethod
+    def parse_limits(data: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+        """
+        Parses the API response to extract rate limits.
+
+        :param data: The JSON response containing limits information.
+        :return: A dictionary with the parsed limits.
+        """
+        limits = data.get('rateLimits', [])
+        parsed_limits = {}
+
+        for limit in limits:
+            limit_type = limit.get('rateLimitType')
+            interval = limit.get('interval')
+            interval_num = limit.get('intervalNum')
+            max_limit = limit.get('limit')
+
+            key = f"{limit_type}_{interval_num}{interval.lower()}"
+            parsed_limits[key] = {
+                'type': limit_type,
+                'cycle': f"{interval_num} {interval.lower()}",
+                'max_requests': max_limit
+            }
+
+        return parsed_limits
+
+    def get_spot_limits(self):
+        """
+        Fetches and parses the limits for SPOT trading from Binance API.
+
+        :return: A dictionary with the SPOT trading limits.
+        """
+        data = self._get_limits(self.spot_url)
+        return self.parse_limits(data)
+
+    def get_margin_limits(self):
+        """
+        Fetches and parses the limits for MARGIN trading from Binance API.
+        Note: Margin trading doesn't provide rateLimits directly, so limits may need to be derived from response headers.
+
+        :return: A dictionary with margin-related limits.
+        """
+        data = self._get_limits(self.margin_url)
+
+        # For Margin, the response might not directly have 'rateLimits', so we can parse necessary data.
+        # Here we assume we might parse headers or other specific limits relevant to margin trading.
+        margin_limits = {
+            "marginAccount": {
+                "borrowLimit": data.get("totalAssetOfBtc"),  # Example limit
+                "totalMarginBalance": data.get("totalNetAssetOfBtc")
+            }
+        }
+        return margin_limits
+
+    def get_futures_limits(self):
+        """
+        Fetches and parses the limits for FUTURES trading from Binance API.
+
+        :return: A dictionary with the FUTURES trading limits.
+        """
+        data = self._get_limits(self.futures_url)
+        return self.parse_limits(data)
+
+    def get_all_limits(self):
+        """
+        Fetches and aggregates limits from SPOT, MARGIN, and FUTURES into a single dictionary.
+
+        :return: A dictionary with all limits.
+        """
+        limits = {
+            'spot': self.get_spot_limits(),
+            'margin': self.get_margin_limits(),
+            'futures': self.get_futures_limits()
+        }
+        return limits
+
+    def print_limits(self):
+        """
+        Prints the limits obtained for SPOT, MARGIN, and FUTURES in a formatted manner.
+        """
+        all_limits = self.get_all_limits()
+
+        for api_type, limits in all_limits.items():
+            print(f"\n--- Límites para {api_type.upper()} ---")
+            if isinstance(limits, dict):
+                for key, value in limits.items():
+                    if isinstance(value, dict):
+                        print(f"{key}:")
+                        for sub_key, sub_value in value.items():
+                            print(f"  {sub_key}: {sub_value}")
+                    else:
+                        print(f"{key}: {value}")
+            else:
+                print(limits)
+
+    def __repr__(self):
+        return self.print_limits()
 
 
 class BinanceAPILimitsManager:
@@ -67,7 +198,7 @@ class BinanceAPILimitsManager:
             ]
 
         """
-        response = requests.get(url=BINANCE_LIMITS_URL, params=None, headers=None)
+        response = requests.get(url=EXCHANGE_INFO_ENDPOINT, params=None, headers=None)
         return response.json()
 
     def parse_weight_limits(self, response: Dict) -> Dict[str, int]:

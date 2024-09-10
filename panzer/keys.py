@@ -8,16 +8,22 @@ from binascii import unhexlify
 import os
 import sys
 import importlib
-from typing import Union
+from typing import Union, Optional, List
+from getpass import getpass
+
+from win32comext.adsi.demos.scp import logger
+
+from panzer.logs import LogManager
 
 
-class SecretModuleImporter:
+class SecretModuleImporterOld:
     """
     Class for flexibly searching and importing the 'secret.py' module
     from anywhere within the project directory hierarchy.
 
     :param ask_for_missing: If True, the class will ask for missing keys and add them to the secret module ciphered.
     """
+
     def __init__(self, ask_for_missing: bool = True):
         self.secret_module = None
         self.find_and_import_secret_module()
@@ -177,44 +183,230 @@ class SecureKeychain:
         self.cipher = AesCipher()
         self.encrypted_keys = {}
 
-    def add_key(self, key_name: str, key_value: str):
+    def add_key(self, key_name: str, key_value: str, is_sensitive: bool) -> None:
         """
-        Adds a key to the manager, encrypting it before storage.
-
-        :param key_name: The name of the key.
-        :param key_value: The value of the key.
-        """
-        self.encrypted_keys[key_name] = self.cipher.encrypt(key_value)
-
-    def get_key(self, key_name: str) -> str:
-        """
-        Retrieves a key from the manager, decrypting its value.
-
-        :param key_name: The name of the key to retrieve.
-        :return: The decrypted value of the key.
-        """
-        if key_name in self.encrypted_keys:
-            return self.cipher.decrypt(self.encrypted_keys[key_name])
-        else:
-            raise KeyError(f"Key not found: {key_name}")
-
-    def add_encrypted_key(self, key_name: str, key_value: str) -> None:
-        """
-         Adds a key to the manager without encrypting it, assuming the key is already encrypted.
+         Adds a key to the manager, if is sensitive, it will encrypt value.
 
          :param key_name: The name of the key.
          :param key_value: The already encrypted value of the key.
+         :param is_sensitive: If True, the key is sensitive.
          """
+        if is_sensitive:
+            key_value = self.cipher.encrypt(key_value)
         self.encrypted_keys[key_name] = key_value
 
-    def get_encrypted_key(self, key_name: str) -> str:
+    def get_key(self, key_name: str, decrypt: bool = False) -> str:
         """
-        Retrieves an encrypted key from the manager without decrypting its value.
+        Retrieves from the manager and decrypting its value if decrypt is True.
 
         :param key_name: The name of the key to retrieve.
+        :param decrypt: If True, it returns decrypted value.
         :return: The encrypted value of the key.
         """
         if key_name in self.encrypted_keys:
-            return self.encrypted_keys[key_name]
+            if decrypt:
+                return self.cipher.decrypt(self.encrypted_keys[key_name])
+            else:
+                return self.encrypted_keys[key_name]
         else:
             raise KeyError(f"Key not found: {key_name}")
+
+
+class CredentialFileManager:
+    def __init__(self, filename='panzer.tmp', info_level: str = "INFO"):
+        """
+        Inicializa la clase de gestión de credenciales. Busca o crea el archivo de credenciales.
+        """
+        self.logger = LogManager(filename="credential_manager.log", info_level=info_level)
+        self.filename = filename
+        self.filepath = self.get_credentials_file_path()
+        self.cipher = AesCipher()
+
+    def get_credentials_file_path(self) -> str:
+        """
+        Localiza el archivo de credenciales en la carpeta home del usuario.
+        Si el archivo no existe, lo crea vacío.
+
+        :return: Ruta completa del archivo.
+        """
+        home_dir = os.path.expanduser("~")  # Obtiene la carpeta home (Windows y Linux)
+        credentials_path = os.path.join(home_dir, self.filename)
+
+        # Si el archivo no existe, lo crea vacío
+        if not os.path.exists(credentials_path):
+            with open(credentials_path, 'w') as f:
+                f.write("# Archivo de credenciales de Panzer\n")
+            self.logger.info(f"Archivo de credenciales creado en: {credentials_path}")
+        return credentials_path
+
+    def _read_variable(self, variable_name: str) -> Optional[str]:
+        """
+        Lee el archivo de credenciales y busca la variable especificada. Si no existe, devuelve None.
+
+        :param variable_name: Nombre de la variable que se quiere leer.
+        :return: Valor de la variable o None si no existe. Tal y como esté en el archivo.
+        """
+        if not os.path.exists(self.filepath):
+            self.logger.info(f"Archivo de credenciales no existe: {self.filepath}")
+            return None
+
+        # Leer el archivo línea por línea
+        with open(self.filepath, 'r') as f:
+            lines = f.readlines()
+
+        # Buscar la variable en el archivo
+        for line in lines:
+            line = line.strip()  # Eliminar espacios en blanco y saltos de línea
+            if line.startswith(f"{variable_name} ="):
+                # Extraer el valor entre comillas
+                try:
+                    return line.split(' = ')[1].strip().strip('"')
+                except IndexError:
+                    self.logger.error(f"Error al procesar la variable {variable_name} en el archivo.")
+                    return None
+
+        # Si no se encontró la variable, devolver None
+        return None
+
+    def prompt_and_store_variable(self, variable_name: str) -> str:
+        """
+        Solicita al usuario que introduzca una variable y la almacena en el archivo de credenciales.
+        Si la variable contiene "api_key", "api_secret", "password", o termina en "_id", se cifrará.
+
+        :param variable_name: Nombre de la variable a solicitar.
+        :return: El valor almacenado.
+        """
+        is_sensitive = any(substring in variable_name for substring in ['secret', 'api_key', 'password', '_id'])
+        logger.info(f"Sensitive prompt!")
+        prompt_message = f"Por favor, introduce el valor para {variable_name}: "
+
+        # Si es una variable sensible, usa getpass para ocultar la entrada del usuario
+        if is_sensitive:
+            user_input = getpass(prompt_message)  # Oculta la entrada si es sensible
+        else:
+            user_input = input(prompt_message)
+
+        # Añade la variable al archivo
+        self.add_variable_to_file(variable_name, user_input, is_sensitive=is_sensitive)
+        return user_input
+
+    def add_variable_to_file(self, variable_name: str, variable_value: str, is_sensitive: bool) -> str:
+        """
+        Añade o reemplaza una variable en el archivo de credenciales.
+
+        Si la variable ya existe, se reemplaza su valor. Si no existe, se añade una nueva línea con la variable.
+
+        :param variable_name: Nombre de la variable.
+        :param variable_value: Valor de la variable.
+        :param is_sensitive: Si es sensible, la cifrará.
+        :return: El valor almacenado. Cifrado si es sensible.
+        """
+        if is_sensitive:
+            variable_value = self.cipher.encrypt(variable_value)
+
+        # Leer todas las líneas del archivo
+        if os.path.exists(self.filepath):
+            with open(self.filepath, 'r') as f:
+                lines = f.readlines()
+        else:
+            lines = []
+
+        # Buscar si la variable ya existe en el archivo
+        variable_found = False
+        with open(self.filepath, 'w') as f:
+            for line in lines:
+                if line.startswith(f"{variable_name} ="):
+                    # Si la variable ya existe, reemplaza su valor
+                    f.write(f'{variable_name} = "{variable_value}"\n')
+                    variable_found = True
+                else:
+                    # Mantener el resto de las líneas intactas
+                    f.write(line)
+
+            # Si la variable no fue encontrada, añadirla al final
+            if not variable_found:
+                f.write(f'{variable_name} = "{variable_value}"\n')
+
+        return variable_value
+
+    def get_or_prompt_variable(self, variable_name: str, prompt: bool = True) -> str:
+        """
+        Obtiene el valor de una variable del archivo de credenciales, tal y como esté, o la solicita si no existe.
+
+        :param variable_name: Nombre de la variable a buscar o solicitar.
+        :param prompt: Si es True, pregunta para añadir la clave.
+        :return: Valor de la variable tal y como esté en el archivo.
+        """
+        value = self._read_variable(variable_name)
+        if value is None:
+            if prompt:
+                self.logger.info(f"La variable {variable_name} no existe en el archivo. Solicitándola...")
+                value = self.prompt_and_store_variable(variable_name)
+            else:
+                self.logger.warning(f"La variable {variable_name} no existe en el archivo.")
+        return value
+
+    def __repr__(self):
+        """
+        Obtiene el contenido del archivo.
+        :return: Path del archivo.
+        """
+        if os.path.exists(self.filepath):
+            with open(self.filepath, 'r') as f:
+                lines = f.readlines()
+        else:
+            lines = []
+        return lines
+
+
+class CredentialManager:
+    def __init__(self):
+        """
+        Inicializa el gestor de credenciales que mantiene las credenciales en memoria.
+        Usa el CredentialFileManager para acceder al archivo de credenciales solo cuando sea necesario.
+        """
+        self.file_manager = CredentialFileManager()
+        self.credentials = {}  # Diccionario para almacenar las credenciales en memoria, pertinentemente encriptadas.
+
+    def encrypt_value(self, value: str) -> str:
+        return self.file_manager.cipher.encrypt(msg=value)
+
+    def decrypt_value(self, value: str):
+        return self.file_manager.cipher.decrypt(msg_encrypted=value)
+
+    def get(self, variable_name: str, decrypt: bool = False) -> str:
+        """
+        Intenta obtener una credencial de memoria. Si no está disponible, la obtiene del archivo
+        de credenciales o la solicita al usuario si no existe.
+
+        :param variable_name: Nombre de la variable que se desea obtener.
+        :param decrypt: Si True, desencripta el valor almacenado.
+        :return: Valor de la credencial. Cifrada en su caso.
+        """
+        # Si la credencial está en memoria, la devuelve
+        if variable_name in self.credentials:
+            ret = self.credentials[variable_name]
+        else:
+            logger.info(f"Credential not found in object: {variable_name}")
+            ret = self.file_manager.get_or_prompt_variable(variable_name, prompt=True)
+            self.credentials.update({variable_name: ret})
+
+        if decrypt:
+            return self.decrypt_value(ret)
+        else:
+            return ret
+
+    def add(self, variable_name: str, variable_value: str, is_sensitive: bool) -> str:
+        if is_sensitive:
+            variable_value = self.encrypt_value(variable_value)
+        self.credentials.update({variable_name: variable_value})
+        return variable_value
+
+    def save(self, variable_name: str, variable_value: str, is_sensitive: bool):
+        if is_sensitive:
+            variable_value = self.encrypt_value(variable_value)
+        self.credentials.update({variable_name: variable_value})
+        self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=is_sensitive)
+
+    def __repr__(self) -> str:
+        return self.credentials.__repr__()

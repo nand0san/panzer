@@ -37,4 +37,5 @@ setup(
     #         # 'nombre-del-comando = modulo.paquete:funcion'
     #     ],
     # },
+    exclude_package_data={'': ['*.ipynb']},  # Exclusión de notebooks
 )

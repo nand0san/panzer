@@ -123,3 +123,4 @@ conf.py
 *.json
 .idea/
 deploy.bat
+# tests/ # excluido en setup.py del módulo
