@@ -367,7 +367,7 @@ class CredentialManager:
 
         :param info_level: Nivel de logging.
         """
-        self.logger = LogManager(filename="credential_manager.log", info_level=info_level)
+        self.logger = LogManager(filename="logs/credential_manager.log", info_level=info_level)
         self.file_manager = CredentialFileManager()
         self.credentials = {}  # Diccionario para almacenar las credenciales en memoria, pertinentemente encriptadas.
 
@@ -390,7 +390,7 @@ class CredentialManager:
         if variable_name in self.credentials:
             ret = self.credentials[variable_name]
         else:
-            self.logger.info(f"Credential not found in object: {variable_name}")
+            self.logger.debug(f"Credential not found in object: {variable_name}. Searching in file.")
             ret = self.file_manager.get_or_prompt_variable(variable_name, prompt=True)
             self.credentials.update({variable_name: ret})
 

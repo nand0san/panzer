@@ -1,5 +1,5 @@
 from time import time, sleep
-from typing import Dict, List
+from typing import Dict
 from urllib.parse import urljoin
 import pandas as pd
 import requests
@@ -7,12 +7,11 @@ import requests
 from panzer.logs import LogManager
 from panzer.signatures import RequestSigner
 from panzer.binance_api_map import *
-from secret import api_key, api_secret
 
 
 class BinanceLimitsFetcher:
 
-    def __init__(self):
+    def __init__(self, info_level="INFO"):
         self.BASE_URL = BASE_URL
         self.EXCHANGE_INFO_ENDPOINT = EXCHANGE_INFO_ENDPOINT
         self.MARGIN_ACCOUNT_ENDPOINT = MARGIN_ACCOUNT_ENDPOINT
@@ -25,7 +24,8 @@ class BinanceLimitsFetcher:
         self.margin_url = urljoin(self.BASE_URL, self.MARGIN_ACCOUNT_ENDPOINT)
         self.futures_url = urljoin(self.FUTURES_BASE_URL, self.FUTURES_EXCHANGE_INFO_ENDPOINT)
 
-        self.signer = RequestSigner(api_key_string_encoded=api_key, secret_key_string_encoded=api_secret)
+        self.logger = LogManager(filename='logs/limits.log', info_level=info_level)
+        self.signer = RequestSigner(info_level=info_level)
 
     @staticmethod
     def _get_limits(url: str) -> Dict[str, Dict[str, str]]:

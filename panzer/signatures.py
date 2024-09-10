@@ -86,6 +86,7 @@ class RequestSigner:
         signature = hmac.new(key=self.__secret_key().encode(),
                              msg=query_string.encode(),
                              digestmod=hashlib.sha256).hexdigest()
+
         params.append((signature_field, signature))
         self.logger.debug(params)
         return params
