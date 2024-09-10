@@ -1,10 +1,13 @@
 import hashlib
 import hmac
 import time
+# from fileinput import filename
 from typing import Union, List, Tuple
 
-from panzer.keys import SecureKeychain
-from panzer.logs import APICallMapper, LogManager
+# from win32comext.adsi.demos.scp import logger
+
+from panzer.keys import CredentialManager
+from panzer.logs import LogManager
 
 
 class RequestSigner:
@@ -17,44 +20,31 @@ class RequestSigner:
     - TRADE, MARGIN, USER_DATA: Endpoints require sending a valid API-Key and signature.
     - USER_STREAM, MARKET_DATA: Endpoints require sending a valid API-Key.
     """
-    def __init__(self,
-                 api_key_string_encoded: str = "api_key",
-                 secret_key_string_encoded: str = "api_secret"):
+    def __init__(self, info_level="INFO"):
         """
         Initializes the Binance request signer with API and secret keys retrieved from a secure storage.
 
-        :param api_key_string_encoded: The name of the API key in the secret storage.
-        :param secret_key_string_encoded: The name of the secret key in the secret storage.
+        :param info_level: The level of information being logged.
         """
 
-        self.api_key_string = api_key_string_encoded
-        self.secret_key_string = secret_key_string_encoded
+        self.credentials = CredentialManager()
+        self.logger = LogManager(filename='logs/request_signer.log', info_level=info_level)
 
-        self.secret_module_importer = SecretModuleImporter()
-        self.api_key = self.secret_module_importer.get_secret(secret_name=api_key_string_encoded)
-        self.secret_key = self.secret_module_importer.get_secret(secret_name=secret_key_string_encoded)
-
-        self.key_manager = SecureKeychain()
-        self.key_manager.add_key(key_name=self.api_key_string, key_value=self.api_key)
-        self.key_manager.add_key(key_name=self.secret_key_string, key_value=self.secret_key)
-
-        self.api_learn_logger = APICallMapper(log_file='api_learn_logger.csv')
-
-    def get_api_key(self) -> str:
+    def __api_key(self) -> str:
         """
         Retrieves the API key from the secure key manager.
 
         :return: The API key as a string.
         """
-        return self.key_manager.get_decrypted_key(self.api_key_string)
+        return self.credentials.get("api_key", decrypt=True)
 
-    def get_secret_key(self) -> str:
+    def __secret_key(self) -> str:
         """
         Retrieves the secret key from the secure key manager.
 
         :return: The secret key as a string.
         """
-        return self.key_manager.get_decrypted_key(self.secret_key_string)
+        return self.credentials.get("api_secret", decrypt=True)
 
     def add_api_key_to_headers(self, headers: dict) -> dict:
         """
@@ -63,7 +53,7 @@ class RequestSigner:
         :param headers: The existing request headers.
         :return: The updated headers dictionary including the API key.
         """
-        headers['X-MBX-APIKEY'] = self.get_api_key()
+        headers['X-MBX-APIKEY'] = self.__api_key()
         return headers
 
     def sign_params(self,
@@ -93,30 +83,16 @@ class RequestSigner:
         query_string = '&'.join([f'{key}={value}' for key, value in params])
 
         # Create the signature
-        signature = hmac.new(key=self.get_secret_key().encode(),
+        signature = hmac.new(key=self.__secret_key().encode(),
                              msg=query_string.encode(),
                              digestmod=hashlib.sha256).hexdigest()
         params.append((signature_field, signature))
+        self.logger.debug(params)
         return params
 
 
 if __name__ == "__main__":
-    signer = RequestSigner()
-
+    signer = RequestSigner("DEBUG")
     params = [('symbol', 'BTCUSDT'),]
-    # ('side', 'SELL'),
-    # ('type', 'LIMIT'),
-    # ('timeInForce', 'GTC'),
-    # ('quantity', '1'),
-    # ('price', '0.1'),]
-
     signature = signer.sign_params(params=params, )
-    #                                         endpoint='/api/v3/allOrders',
-    #                                         url='https://api.binance.com/',
-    #                                         method='GET')
-    # print(response.status_code)
-    # print(response.json())
-    #
-    # # muestra headers de respuesta
-    # print(response.headers)
     print(signature)

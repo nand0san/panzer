@@ -6,134 +6,130 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 from binascii import unhexlify
 import os
-import sys
-import importlib
-from typing import Union, Optional
+from typing import Optional
 from getpass import getpass
-
-from win32comext.adsi.demos.scp import logger
 
 from panzer.logs import LogManager
 
 
-class SecretModuleImporterOld:
-    """
-    Class for flexibly searching and importing the 'secret.py' module
-    from anywhere within the project directory hierarchy.
-
-    :param ask_for_missing: If True, the class will ask for missing keys and add them to the secret module ciphered.
-    """
-
-    def __init__(self, ask_for_missing: bool = True):
-        self.secret_module = None
-        self.find_and_import_secret_module()
-        self.ask_missing = ask_for_missing
-        self.cipher = AesCipher()
-
-    def find_and_import_secret_module(self) -> bool:
-        """
-        Searches for and imports the 'secret.py' module.
-
-        :return: True if the module was found and successfully loaded, False otherwise.
-        """
-        current_dir = os.path.abspath(os.curdir)
-        while True:
-            try:
-                self.secret_module = importlib.import_module('secret')
-                print("SECRET module found and imported!")
-                return True
-            except ModuleNotFoundError:
-                parent_dir = os.path.dirname(current_dir)
-
-                if parent_dir == current_dir:  # it is at the top of the file system
-                    print("SECRET module not found!")
-                    return False
-
-                current_dir = parent_dir
-                sys.path.insert(0, current_dir)
-
-    def get_secret(self, secret_name: str) -> Union[None, str]:
-        """
-        Retrieves a secret by name from the imported 'secret' module.
-
-        :param secret_name: The name of the secret to retrieve.
-        :return: The value of the secret if it exists, None otherwise.
-        """
-        if self.secret_module and hasattr(self.secret_module, secret_name):
-            return getattr(self.secret_module, secret_name)
-        else:
-            if self.ask_missing:
-                self.add_key_to_secret(key_name=secret_name)
-                return self.get_secret(secret_name=secret_name)
-            else:
-                raise Exception(f"Secret '{secret_name}' not found in module.")
-
-    def add_key_to_secret(self, key_name: str) -> None:
-        """
-        Checks if exists in a file and if not, then adds a line with the api key value for working with the package.
-
-        :param str key_name: Variable name to import it later.
-        """
-        assert type(key_name) == str, "The key name must be a string."
-        filename = "secret.py"
-        saved_data = self.read_file(filename=filename)
-        lines = []
-        for line in saved_data:
-            if line:
-                if not line.strip().startswith(key_name):
-                    lines.append(line.strip())
-        new_key = input(f"Missing key '{key_name}'. Please enter the value: ")
-
-        encrypted = self.cipher.encrypt(new_key)
-        lines.append(f'{key_name} = "{encrypted}"')
-        self.save_file(filename=filename, data=lines)
-        # import again the module
-        self.unload_imported_module()
-        self.find_and_import_secret_module()
-
-    @staticmethod
-    def read_file(filename: str) -> list:
-        """
-        Read a file to a list of strings each line.
-
-        :return list: list with a string each row in the file.
-        """
-        if not os.path.isfile(filename):
-            return []
-        with open(filename, 'r') as f:
-            lines = f.readlines()
-            lines = [line.rstrip() for line in lines if line]
-        return lines
-
-    @staticmethod
-    def save_file(filename: str, data: list, mode='w') -> None:
-        """
-        Save a new file from a list of lists each line.
-
-        :param str filename: a file name to save.
-        :param list data: Data in a list of strings each line.
-        :param str mode: 'w' to rewrite full file or 'a' to append to existing file.
-
-        """
-        with open(filename, mode) as f:
-            for line in sorted(data):
-                f.write(str(line) + '\n')
-
-    def unload_imported_module(self):
-        """
-        Unloads the imported 'secret' module, allowing it to be re-imported to reflect any changes.
-        """
-        module_name = 'secret'
-        if module_name in sys.modules:
-            del sys.modules[module_name]
-            # print("SECRET module unloaded!")
-            self.secret_module = None
-
-    def __str__(self):
-        return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
-
-    def __repr__(self):
-        return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
+# class SecretModuleImporterOld:
+#     """
+#     Class for flexibly searching and importing the 'secret.py' module
+#     from anywhere within the project directory hierarchy.
+#
+#     :param ask_for_missing: If True, the class will ask for missing keys and add them to the secret module ciphered.
+#     """
+#
+#     def __init__(self, ask_for_missing: bool = True):
+#         self.secret_module = None
+#         self.find_and_import_secret_module()
+#         self.ask_missing = ask_for_missing
+#         self.cipher = AesCipher()
+#
+#     def find_and_import_secret_module(self) -> bool:
+#         """
+#         Searches for and imports the 'secret.py' module.
+#
+#         :return: True if the module was found and successfully loaded, False otherwise.
+#         """
+#         current_dir = os.path.abspath(os.curdir)
+#         while True:
+#             try:
+#                 self.secret_module = importlib.import_module('secret')
+#                 print("SECRET module found and imported!")
+#                 return True
+#             except ModuleNotFoundError:
+#                 parent_dir = os.path.dirname(current_dir)
+#
+#                 if parent_dir == current_dir:  # it is at the top of the file system
+#                     print("SECRET module not found!")
+#                     return False
+#
+#                 current_dir = parent_dir
+#                 sys.path.insert(0, current_dir)
+#
+#     def get_secret(self, secret_name: str) -> Union[None, str]:
+#         """
+#         Retrieves a secret by name from the imported 'secret' module.
+#
+#         :param secret_name: The name of the secret to retrieve.
+#         :return: The value of the secret if it exists, None otherwise.
+#         """
+#         if self.secret_module and hasattr(self.secret_module, secret_name):
+#             return getattr(self.secret_module, secret_name)
+#         else:
+#             if self.ask_missing:
+#                 self.add_key_to_secret(key_name=secret_name)
+#                 return self.get_secret(secret_name=secret_name)
+#             else:
+#                 raise Exception(f"Secret '{secret_name}' not found in module.")
+#
+#     def add_key_to_secret(self, key_name: str) -> None:
+#         """
+#         Checks if exists in a file and if not, then adds a line with the api key value for working with the package.
+#
+#         :param str key_name: Variable name to import it later.
+#         """
+#         assert type(key_name) == str, "The key name must be a string."
+#         filename = "secret.py"
+#         saved_data = self.read_file(filename=filename)
+#         lines = []
+#         for line in saved_data:
+#             if line:
+#                 if not line.strip().startswith(key_name):
+#                     lines.append(line.strip())
+#         new_key = input(f"Missing key '{key_name}'. Please enter the value: ")
+#
+#         encrypted = self.cipher.encrypt(new_key)
+#         lines.append(f'{key_name} = "{encrypted}"')
+#         self.save_file(filename=filename, data=lines)
+#         # import again the module
+#         self.unload_imported_module()
+#         self.find_and_import_secret_module()
+#
+#     @staticmethod
+#     def read_file(filename: str) -> list:
+#         """
+#         Read a file to a list of strings each line.
+#
+#         :return list: list with a string each row in the file.
+#         """
+#         if not os.path.isfile(filename):
+#             return []
+#         with open(filename, 'r') as f:
+#             lines = f.readlines()
+#             lines = [line.rstrip() for line in lines if line]
+#         return lines
+#
+#     @staticmethod
+#     def save_file(filename: str, data: list, mode='w') -> None:
+#         """
+#         Save a new file from a list of lists each line.
+#
+#         :param str filename: a file name to save.
+#         :param list data: Data in a list of strings each line.
+#         :param str mode: 'w' to rewrite full file or 'a' to append to existing file.
+#
+#         """
+#         with open(filename, mode) as f:
+#             for line in sorted(data):
+#                 f.write(str(line) + '\n')
+#
+#     def unload_imported_module(self):
+#         """
+#         Unloads the imported 'secret' module, allowing it to be re-imported to reflect any changes.
+#         """
+#         module_name = 'secret'
+#         if module_name in sys.modules:
+#             del sys.modules[module_name]
+#             # print("SECRET module unloaded!")
+#             self.secret_module = None
+#
+#     def __str__(self):
+#         return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
+#
+#     def __repr__(self):
+#         return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
 
 
 class AesCipher(object):
@@ -277,7 +273,7 @@ class CredentialFileManager:
         :return: El valor almacenado.
         """
         is_sensitive = any(substring in variable_name for substring in ['secret', 'api_key', 'password', '_id'])
-        logger.info(f"Sensitive prompt!")
+        self.logger.info(f"Sensitive prompt!")
         prompt_message = f"Por favor, introduce el valor para {variable_name}: "
 
         # Si es una variable sensible, usa getpass para ocultar la entrada del usuario
@@ -364,14 +360,16 @@ class CredentialFileManager:
 
 
 class CredentialManager:
-    def __init__(self):
+    def __init__(self, info_level: str = "INFO"):
         """
         Inicializa el gestor de credenciales que mantiene las credenciales en memoria.
         Usa el CredentialFileManager para acceder al archivo de credenciales solo cuando sea necesario.
+
+        :param info_level: Nivel de logging.
         """
+        self.logger = LogManager(filename="credential_manager.log", info_level=info_level)
         self.file_manager = CredentialFileManager()
         self.credentials = {}  # Diccionario para almacenar las credenciales en memoria, pertinentemente encriptadas.
-
 
     def encrypt_value(self, value: str) -> str:
         return self.file_manager.cipher.encrypt(msg=value)
@@ -392,7 +390,7 @@ class CredentialManager:
         if variable_name in self.credentials:
             ret = self.credentials[variable_name]
         else:
-            logger.info(f"Credential not found in object: {variable_name}")
+            self.logger.info(f"Credential not found in object: {variable_name}")
             ret = self.file_manager.get_or_prompt_variable(variable_name, prompt=True)
             self.credentials.update({variable_name: ret})
 
@@ -413,20 +411,21 @@ class CredentialManager:
         if is_sensitive:
             variable_value = self.encrypt_value(variable_value)
         self.credentials.update({variable_name: variable_value})
-        # verifica si esta en el archivo y si no lo está la añade
-        self._save(variable_name, variable_value)
+        # verifica si esta en el archivo y si no lo está la añade. Como ya viene cifrada se graba en modo no sensitive para evitar recifrados.
+        self._save(variable_name, variable_value, is_sensitive=False)
         return variable_value
 
-    def _save(self, variable_name: str, variable_value: str):
+    def _save(self, variable_name: str, variable_value: str, is_sensitive: bool):
         """
         Almacena la variable en archivo. Si es o no sensible, debe haberse gestionado previamente.
 
         :param variable_name: Nombre de la variable que se desea almacenar.
         :param variable_value: Valor de la variable, cifrado o no, previamente se debe haber gestionado.
+        :param is_sensitive: Si es sensible la cifrará al almacenarla. Si ya viene cifrada debe usarse en modo False.
         :return:
         """
         # sensitive en false, si es o no sensible, debe haberse gestionado anteriormente.
-        self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=False)
+        self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=is_sensitive)
 
     def __repr__(self) -> str:
         return self.credentials.__repr__()
