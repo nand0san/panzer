@@ -8,7 +8,7 @@ from binascii import unhexlify
 import os
 import sys
 import importlib
-from typing import Union, Optional, List
+from typing import Union, Optional
 from getpass import getpass
 
 from win32comext.adsi.demos.scp import logger
@@ -348,15 +348,19 @@ class CredentialFileManager:
 
     def __repr__(self):
         """
-        Obtiene el contenido del archivo.
-        :return: Path del archivo.
+        Devuelve una representación oficial del objeto, mostrando el path del archivo y su contenido si existe.
+
+        :return: str con la representación del archivo.
         """
         if os.path.exists(self.filepath):
-            with open(self.filepath, 'r') as f:
-                lines = f.readlines()
+            try:
+                with open(self.filepath, 'r') as f:
+                    lines = f.readlines()
+            except Exception as e:
+                return f"Error reading file {self.filepath}: {e}"
+            return f"File at {self.filepath}:\n{''.join(lines)}"
         else:
-            lines = []
-        return lines
+            return f"File at {self.filepath} does not exist."
 
 
 class CredentialManager:
@@ -367,6 +371,7 @@ class CredentialManager:
         """
         self.file_manager = CredentialFileManager()
         self.credentials = {}  # Diccionario para almacenar las credenciales en memoria, pertinentemente encriptadas.
+
 
     def encrypt_value(self, value: str) -> str:
         return self.file_manager.cipher.encrypt(msg=value)
@@ -397,16 +402,31 @@ class CredentialManager:
             return ret
 
     def add(self, variable_name: str, variable_value: str, is_sensitive: bool) -> str:
+        """
+        Añade una variable en memoria, si es sensible, se almacena cifrada. También la almacena en disco.
+
+        :param variable_name: Nombre de la variable a almacenar en memoria.
+        :param variable_value:
+        :param is_sensitive:
+        :return:
+        """
         if is_sensitive:
             variable_value = self.encrypt_value(variable_value)
         self.credentials.update({variable_name: variable_value})
+        # verifica si esta en el archivo y si no lo está la añade
+        self._save(variable_name, variable_value)
         return variable_value
 
-    def save(self, variable_name: str, variable_value: str, is_sensitive: bool):
-        if is_sensitive:
-            variable_value = self.encrypt_value(variable_value)
-        self.credentials.update({variable_name: variable_value})
-        self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=is_sensitive)
+    def _save(self, variable_name: str, variable_value: str):
+        """
+        Almacena la variable en archivo. Si es o no sensible, debe haberse gestionado previamente.
+
+        :param variable_name: Nombre de la variable que se desea almacenar.
+        :param variable_value: Valor de la variable, cifrado o no, previamente se debe haber gestionado.
+        :return:
+        """
+        # sensitive en false, si es o no sensible, debe haberse gestionado anteriormente.
+        self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=False)
 
     def __repr__(self) -> str:
         return self.credentials.__repr__()
