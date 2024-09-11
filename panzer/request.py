@@ -1,6 +1,5 @@
 from typing import Union, List, Tuple, Dict, Optional
 import requests
-from time import time
 
 from panzer.logs import LogManager
 from panzer.errors import BinanceRequestHandler

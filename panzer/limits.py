@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Union
 from time import time
 
 from panzer.logs import LogManager
@@ -322,9 +322,9 @@ class BinanceRateLimiter:
     def __init__(self,
                  rate_limit_per_minute: int = 1200,
                  rate_limit_per_second: int = 10,
-                 orders_limit_per_ten_seconds: int = 10,
                  weight_limit_per_minute: int = 50000,
-                 rate_limit_per_day: int = 65000,
+                 orders_limit_per_ten_seconds: int = 10,
+                 orders_limit_per_day: int = 65000,
                  info_level: str = "INFO"):
         """
         Initializes the class with specified limits.
@@ -338,10 +338,11 @@ class BinanceRateLimiter:
         self.server_time_offset = 0
 
         # Request rate limits
-        self.rate_limit_per_day = rate_limit_per_day
-        self.rate_limit_per_minute = rate_limit_per_minute  # Max requests per minute
         self.rate_limit_per_second = rate_limit_per_second  # Max requests per second
+        self.rate_limit_per_minute = rate_limit_per_minute  # Max requests per minute
+
         self.orders_limit_per_ten_seconds = orders_limit_per_ten_seconds  # 10s order quantity limit
+        self.orders_limit_per_day = orders_limit_per_day
 
         # Request weight limit
         self.weight_limit_per_minute = weight_limit_per_minute  # Max request weight per minute
@@ -352,12 +353,12 @@ class BinanceRateLimiter:
         self.seconds_counts = {}
         self.ten_seconds_orders_counts = {}
         self.minutes_counts = {}
-        self.days_counts = {}
+        self.daily_orders_count = {}
 
         # clean counters and offset updates
-        self.clean_period_minutes = 5  # minutes
+        self.clean_period_minutes = 7  # minutes
         self.minute_for_clean = minute(time_milliseconds=int(time() * 1000)) + self.clean_period_minutes
-        self.hour_for_clean = hour(time_milliseconds=int(time() * 1000))
+        self.hour_for_clean = hour(time_milliseconds=int(time() * 1000)) + 1
         self._update_server_time_offset()
 
     def _update_server_time_offset(self):
@@ -366,12 +367,21 @@ class BinanceRateLimiter:
 
         :return: The updated server time offset in milliseconds.
         """
-        if self.can_make_request(weight=1, is_order=False):
+        current_second = self._get_current_second()
+        current_minute = self._get_current_minute()
+        seconds_count = self.seconds_counts.get(current_second, 0) + 1
+        minutes_count = self.minutes_counts.get(current_minute, 0) + 1
+        minutes_weights = self.minutes_weights.get(current_minute, 0) + 1
+
+        if seconds_count <= self.rate_limit_per_second and minutes_count <= self.rate_limit_per_minute and minutes_weights <= self.weight_limit_per_minute:
             if hasattr(self, 'server_time_offset'):
                 self.server_time_offset = update_server_time_offset(self.server_time_offset)
             else:
                 self.server_time_offset = update_server_time_offset()
             # update counts because of update of server time offset
+            self.seconds_counts.update({current_second: seconds_count})
+            self.minutes_counts.update({current_minute: minutes_count})
+            self.minutes_weights.update({current_minute: minutes_weights})
             return self.server_time_offset
         else:
             self.logger.warning(f"Bypassed update server-local time offset. Rate limiter overload: \n{self.get()}")
@@ -439,11 +449,15 @@ class BinanceRateLimiter:
     def _clean_counters(self):
         """Keep last 3 counters keys."""
         # Remove old entries
-        self.minutes_weights = {k: self.minutes_weights[k] for k in sorted(self.minutes_weights.keys()[:-3])}
-        self.seconds_counts = {k: self.seconds_counts[k] for k in sorted(self.seconds_counts.keys()[:-3])}
-        self.ten_seconds_orders_counts = {k: self.ten_seconds_orders_counts[k] for k in sorted(self.ten_seconds_orders_counts.keys()[:-3])}
-        self.minutes_counts = {k: self.minutes_counts[k] for k in sorted(self.minutes_counts.keys()[:-3])}
-        self.days_counts = {k: self.days_counts[k] for k in sorted(self.days_counts.keys()[:-3])}
+        self.minutes_weights = {k: self.minutes_weights[k] for k in sorted(list(self.minutes_weights.keys()))[-3:]}
+
+        self.seconds_counts = {k: self.seconds_counts[k] for k in sorted(list(self.seconds_counts.keys()))[-3:]}
+        self.minutes_counts = {k: self.minutes_counts[k] for k in sorted(list(self.minutes_counts.keys()))[-3:]}
+
+        self.ten_seconds_orders_counts = {k: self.ten_seconds_orders_counts[k] for k in sorted(list(self.ten_seconds_orders_counts.keys()))[-3:]}
+        self.daily_orders_count = {k: self.daily_orders_count[k] for k in sorted(list(self.daily_orders_count.keys()))[-3:]}
+
+        self.logger.debug(f"Cleaned counters: {self.get()}")
 
     def get(self):
         """Get current counter values."""
@@ -451,7 +465,7 @@ class BinanceRateLimiter:
             "seconds_counts": self.seconds_counts,
             "ten_seconds_orders_counts": self.ten_seconds_orders_counts,
             "minutes_counts": self.minutes_counts,
-            "days_counts": self.days_counts,
+            "daily_orders_count": self.daily_orders_count,
             "minutes_weights": self.minutes_weights
         }
 
@@ -473,7 +487,7 @@ class BinanceRateLimiter:
         current_second_count = self.seconds_counts.get(current_second, 0)
         current_ten_seconds_orders_counts = self.ten_seconds_orders_counts.get(current_ten_seconds, 0)
         current_minute_count = self.minutes_counts.get(current_minute, 0)
-        current_day_count = self.days_counts.get(current_day, 0)
+        current_day_count = self.daily_orders_count.get(current_day, 0)
 
         # Reset counters if minute or second changes
         if current_second_count + 1 > self.rate_limit_per_second:
@@ -491,10 +505,10 @@ class BinanceRateLimiter:
         else:
             self.minutes_counts.update({current_minute: current_minute_count + 1})
 
-        if current_day_count + 1 > self.rate_limit_per_day:
+        if current_day_count + 1 > self.orders_limit_per_day:
             return False
         else:
-            self.days_counts.update({current_day: current_day_count + 1})
+            self.daily_orders_count.update({current_day: current_day_count + 1})
 
         # weight limit per minute
         if current_minute_weight + weight > self.weight_limit_per_minute:
@@ -503,9 +517,9 @@ class BinanceRateLimiter:
             self.minutes_weights.update({current_minute: current_minute_weight + weight})
 
         # cleaning and update offsets
-        if current_minute > self.minute_for_clean or current_hour > self.hour_for_clean:
+        if current_minute >= self.minute_for_clean or current_hour >= self.hour_for_clean:
             self.minute_for_clean = current_minute + self.clean_period_minutes
-            self.hour_for_clean = current_hour
+            self.hour_for_clean = current_hour + 1
             self._clean_counters()
             self._update_server_time_offset()
         return True
@@ -535,7 +549,9 @@ class BinanceRateLimiter:
 
         :param normalized_headers: The normalized response headers from a Binance API call.
         """
-        expected_headers = {'x-mbx-uuid', 'x-mbx-used-weight', 'x-mbx-used-weight-1m', 'x-mbx-order-count-10s', 'x-mbx-order-count-1d'}
+        expected_headers = {'x-mbx-uuid', 'x-mbx-traceid',
+                            'x-mbx-used-weight', 'x-mbx-used-weight-1m',
+                            'x-mbx-order-count-10s', 'x-mbx-order-count-1d'}
         unexpected_headers = set(normalized_headers) - expected_headers
         if unexpected_headers:
             self.logger.error(f"Unexpected X-MBX headers: {unexpected_headers}")
@@ -567,10 +583,10 @@ class BinanceRateLimiter:
             self.ten_seconds_orders_counts.update({current_ten_seconds: int(normalized_headers['x-mbx-order-count-10s'])})
 
         # x-mbx-order-count-1d
-        registered = self.days_counts.get(current_day, 0)
+        registered = self.daily_orders_count.get(current_day, 0)
         delta3 = self.wrong_registered_value(header='x-mbx-order-count-1d', normalized_headers=normalized_headers, registered_weight=registered)
         if delta3:
-            self.days_counts.update({current_day: int(normalized_headers['x-mbx-order-count-1d'])})
+            self.daily_orders_count.update({current_day: int(normalized_headers['x-mbx-order-count-1d'])})
 
         # check for new headers
         self.verify_unknown_headers(normalized_headers)
@@ -578,7 +594,6 @@ class BinanceRateLimiter:
 
 if __name__ == "__main__":
 
-    import requests
     from panzer.request import get, post
 
     # Define base URL for Binance API
@@ -589,42 +604,42 @@ if __name__ == "__main__":
         ('/api/v3/time', 1, [], False, "GET"),
         ('/api/v3/exchangeInfo', 20, [], False, "GET"),
         ('/api/v3/ticker/price', 4, [], False, "GET"),
-        ('/api/v3/order/test', 1, {'symbol': "BTCUSDT",
-                                   'side': "SELL",
-                                   'type': "LIMIT",
-                                   'timeInForce': 'GTC',  # Good 'Til Canceled
-                                   'quantity': 0.001,
-                                   'price': 80000,
-                                   'recvWindow': 5000,
-                                   'timestamp': int(time() * 1000)},
-         True, "POST"),
-        ('/api/v3/order', 1, {'symbol': "BTCUSDT",
-                              'side': "SELL",
-                              'type': "LIMIT",
-                              'timeInForce': 'GTC',  # Good 'Til Canceled
-                              'quantity': 0.001,
-                              'price': 80000,
-                              'recvWindow': 5000,
-                              'timestamp': int(time() * 1000)},
-         True, "POST"),
-        ('/api/v3/order', 1, {'symbol': "BTCUSDT",
-                              'side': "SELL",
-                              'type': "LIMIT",
-                              'timeInForce': 'GTC',  # Good 'Til Canceled
-                              'quantity': 0.001,
-                              'price': 80000,
-                              'recvWindow': 5000,
-                              'timestamp': int(time() * 1000)},
-         True, "POST"),
-        ('/api/v3/order', 1, {'symbol': "BTCUSDT",
-                              'side': "SELL",
-                              'type': "LIMIT",
-                              'timeInForce': 'GTC',  # Good 'Til Canceled
-                              'quantity': 0.001,
-                              'price': 80000,
-                              'recvWindow': 5000,
-                              'timestamp': int(time() * 1000)},
-         True, "POST"),
+        # ('/api/v3/order/test', 1, {'symbol': "BTCUSDT",
+        #                            'side': "SELL",
+        #                            'type': "LIMIT",
+        #                            'timeInForce': 'GTC',  # Good 'Til Canceled
+        #                            'quantity': 0.001,
+        #                            'price': 80000,
+        #                            'recvWindow': 10000,
+        #                            'timestamp': int(time() * 1000)},
+        #  True, "POST"),
+        # ('/api/v3/order', 1, {'symbol': "BTCUSDT",
+        #                       'side': "SELL",
+        #                       'type': "LIMIT",
+        #                       'timeInForce': 'GTC',  # Good 'Til Canceled
+        #                       'quantity': 0.001,
+        #                       'price': 80000,
+        #                       'recvWindow': 5000,
+        #                       'timestamp': int(time() * 1000)},
+        #  True, "POST"),
+        # ('/api/v3/order', 1, {'symbol': "BTCUSDT",
+        #                       'side': "SELL",
+        #                       'type': "LIMIT",
+        #                       'timeInForce': 'GTC',  # Good 'Til Canceled
+        #                       'quantity': 0.001,
+        #                       'price': 80000,
+        #                       'recvWindow': 5000,
+        #                       'timestamp': int(time() * 1000)},
+        #  True, "POST"),
+        # ('/api/v3/order', 1, {'symbol': "BTCUSDT",
+        #                       'side': "SELL",
+        #                       'type': "LIMIT",
+        #                       'timeInForce': 'GTC',  # Good 'Til Canceled
+        #                       'quantity': 0.001,
+        #                       'price': 80000,
+        #                       'recvWindow': 5000,
+        #                       'timestamp': int(time() * 1000)},
+        #  True, "POST"),
     ]
 
 
@@ -648,9 +663,9 @@ if __name__ == "__main__":
                 print(f"Response Headers for {endpoint}: {x_headers}")
                 rate_limiter.update_from_headers(headers)
             else:
-                print(f"Cannot make request to {endpoint}. Rate limit exceeded.")
-                continue
+                raise Exception(f"Cannot make request to {endpoint}. Rate limit exceeded.")
 
+        test_rate_limiter(rate_limiter)
 
     # Initialize your BinanceRateLimiter
     rate_limiter = BinanceRateLimiter(
@@ -658,7 +673,7 @@ if __name__ == "__main__":
         rate_limit_per_second=10,
         orders_limit_per_ten_seconds=10,
         weight_limit_per_minute=50000,
-        rate_limit_per_day=65000,
+        orders_limit_per_day=65000,
         info_level="DEBUG"
     )
 
