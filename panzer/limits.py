@@ -1,3 +1,4 @@
+from typing import Dict, Union
 from time import time
 
 from panzer.logs import LogManager
@@ -321,7 +322,7 @@ class BinanceRateLimiter:
     def __init__(self,
                  rate_limit_per_minute: int = 1200,
                  rate_limit_per_second: int = 10,
-                 weight_limit_per_ten_seconds: int = 10,
+                 orders_limit_per_ten_seconds: int = 10,
                  weight_limit_per_minute: int = 50000,
                  rate_limit_per_day: int = 65000,
                  info_level: str = "INFO"):
@@ -340,16 +341,16 @@ class BinanceRateLimiter:
         self.rate_limit_per_day = rate_limit_per_day
         self.rate_limit_per_minute = rate_limit_per_minute  # Max requests per minute
         self.rate_limit_per_second = rate_limit_per_second  # Max requests per second
+        self.orders_limit_per_ten_seconds = orders_limit_per_ten_seconds  # 10s order quantity limit
 
         # Request weight limit
-        self.weight_limit_per_ten_seconds = weight_limit_per_ten_seconds
         self.weight_limit_per_minute = weight_limit_per_minute  # Max request weight per minute
 
         # Track current request counts and weights
         self.minutes_weights = {}
 
         self.seconds_counts = {}
-        self.ten_seconds_counts = {}
+        self.ten_seconds_orders_counts = {}
         self.minutes_counts = {}
         self.days_counts = {}
 
@@ -440,7 +441,7 @@ class BinanceRateLimiter:
         # Remove old entries
         self.minutes_weights = {k: self.minutes_weights[k] for k in sorted(self.minutes_weights.keys()[:-3])}
         self.seconds_counts = {k: self.seconds_counts[k] for k in sorted(self.seconds_counts.keys()[:-3])}
-        self.ten_seconds_counts = {k: self.ten_seconds_counts[k] for k in sorted(self.ten_seconds_counts.keys()[:-3])}
+        self.ten_seconds_orders_counts = {k: self.ten_seconds_orders_counts[k] for k in sorted(self.ten_seconds_orders_counts.keys()[:-3])}
         self.minutes_counts = {k: self.minutes_counts[k] for k in sorted(self.minutes_counts.keys()[:-3])}
         self.days_counts = {k: self.days_counts[k] for k in sorted(self.days_counts.keys()[:-3])}
 
@@ -448,7 +449,7 @@ class BinanceRateLimiter:
         """Get current counter values."""
         return {
             "seconds_counts": self.seconds_counts,
-            "ten_seconds_counts": self.ten_seconds_counts,
+            "ten_seconds_orders_counts": self.ten_seconds_orders_counts,
             "minutes_counts": self.minutes_counts,
             "days_counts": self.days_counts,
             "minutes_weights": self.minutes_weights
@@ -470,7 +471,7 @@ class BinanceRateLimiter:
 
         current_minute_weight = self.minutes_weights.get(current_minute, 0)
         current_second_count = self.seconds_counts.get(current_second, 0)
-        current_ten_seconds_count = self.ten_seconds_counts.get(current_ten_seconds, 0)
+        current_ten_seconds_orders_counts = self.ten_seconds_orders_counts.get(current_ten_seconds, 0)
         current_minute_count = self.minutes_counts.get(current_minute, 0)
         current_day_count = self.days_counts.get(current_day, 0)
 
@@ -480,10 +481,10 @@ class BinanceRateLimiter:
         else:
             self.seconds_counts.update({current_second: current_second_count + 1})
 
-        if is_order and current_ten_seconds_count + weight > self.weight_limit_per_ten_seconds:
+        if is_order and (current_ten_seconds_orders_counts + 1) > self.orders_limit_per_ten_seconds:
             return False
         elif is_order:
-            self.ten_seconds_counts.update({current_ten_seconds: current_ten_seconds_count + weight})
+            self.ten_seconds_orders_counts.update({current_ten_seconds: current_ten_seconds_orders_counts + 1})
 
         if current_minute_count + 1 > self.rate_limit_per_minute:
             return False
@@ -509,13 +510,23 @@ class BinanceRateLimiter:
             self._update_server_time_offset()
         return True
 
-    def wrong_registered_value(self, header: str, normalized_headers: dict, registered_weight: int) -> int:
-        """Compares the weight of a given header in the response headers with the registered weight."""
+    def wrong_registered_value(self, header: str, normalized_headers: dict, registered_weight: int) -> Union[int, None]:
+        """
+        Compares the weight of a given header in the response headers with the registered weight.
+
+        :param header: The header to compare.
+        :param normalized_headers: The normalized response headers from a Binance API call.
+        :param registered_weight: The registered weight for the header.
+        :return: The delta deviation between the header value and the registered weight if there's a discrepancy. 0 if no discrepancy.
+        """
+        if not header in normalized_headers:
+            # self.logger.debug(f"Header {header} not found in the response headers: {set(normalized_headers)}")
+            return None
         header_value = int(normalized_headers.get(header, 0))
         if header_value != registered_weight:
             delta = header_value - registered_weight
             self.logger.warning(f"Rate limit {header} not synced with the server. Expected: {registered_weight}, "
-                                f"Actual: {header_value} Delta deviation: {delta}")
+                                f"Header: {header_value} Delta deviation: {delta}")
             return delta
 
     def verify_unknown_headers(self, normalized_headers: dict) -> None:
@@ -524,7 +535,7 @@ class BinanceRateLimiter:
 
         :param normalized_headers: The normalized response headers from a Binance API call.
         """
-        expected_headers = {'x-mbx-uuid', 'x-mbx-used-weight', 'x-mbx-used-weight-1m', 'x-mbx-order-count-10s'}
+        expected_headers = {'x-mbx-uuid', 'x-mbx-used-weight', 'x-mbx-used-weight-1m', 'x-mbx-order-count-10s', 'x-mbx-order-count-1d'}
         unexpected_headers = set(normalized_headers) - expected_headers
         if unexpected_headers:
             self.logger.error(f"Unexpected X-MBX headers: {unexpected_headers}")
@@ -538,69 +549,95 @@ class BinanceRateLimiter:
         """
         current_ten_seconds = self._get_current_ten_seconds()
         current_minute = self._get_current_minute()
+        current_day = self._get_current_day()
 
         # Normalize headers to lowercase for uniform access
         normalized_headers = {k.lower(): v for k, v in headers.items() if k.lower().startswith('x-mbx-')}
-        
+
         # Get X-MBX-used-weight-1m
         registered = self.minutes_weights.get(current_minute, 0)
         delta1 = self.wrong_registered_value(header='x-mbx-used-weight-1m', normalized_headers=normalized_headers, registered_weight=registered)
         if delta1:
-            self.minutes_weights.update({current_minute: registered+delta1})
-        
+            self.minutes_weights.update({current_minute: int(normalized_headers['x-mbx-used-weight-1m'])})
+
         # Get X-MBX-used-weight-10s
-        registered = self.ten_seconds_counts.get(current_minute, 0)
+        registered = self.ten_seconds_orders_counts.get(current_minute, 0)
         delta2 = self.wrong_registered_value(header='x-mbx-order-count-10s', normalized_headers=normalized_headers, registered_weight=registered)
         if delta2:
-            self.ten_seconds_counts.update({current_ten_seconds: registered+delta2})
+            self.ten_seconds_orders_counts.update({current_ten_seconds: int(normalized_headers['x-mbx-order-count-10s'])})
+
+        # x-mbx-order-count-1d
+        registered = self.days_counts.get(current_day, 0)
+        delta3 = self.wrong_registered_value(header='x-mbx-order-count-1d', normalized_headers=normalized_headers, registered_weight=registered)
+        if delta3:
+            self.days_counts.update({current_day: int(normalized_headers['x-mbx-order-count-1d'])})
+
+        # check for new headers
+        self.verify_unknown_headers(normalized_headers)
 
 
 if __name__ == "__main__":
 
     import requests
+    from panzer.request import get, post
 
     # Define base URL for Binance API
     BASE_URL = 'https://api.binance.com'
 
     # Define public endpoints for testing
-    ENDPOINTS = [
-        ('/api/v3/time', 1),  # Get current server time
-        ('/api/v3/exchangeInfo', 20),  # Get exchange information
-        ('/api/v3/ticker/price', 4)  # Get the current price for all symbols
+    CALLS = [
+        ('/api/v3/time', 1, [], False, "GET"),
+        ('/api/v3/exchangeInfo', 20, [], False, "GET"),
+        ('/api/v3/ticker/price', 4, [], False, "GET"),
+        ('/api/v3/order/test', 1, {'symbol': "BTCUSDT",
+                                   'side': "SELL",
+                                   'type': "LIMIT",
+                                   'timeInForce': 'GTC',  # Good 'Til Canceled
+                                   'quantity': 0.001,
+                                   'price': 80000,
+                                   'recvWindow': 5000,
+                                   'timestamp': int(time() * 1000)},
+         True, "POST"),
+        ('/api/v3/order', 1, {'symbol': "BTCUSDT",
+                              'side': "SELL",
+                              'type': "LIMIT",
+                              'timeInForce': 'GTC',  # Good 'Til Canceled
+                              'quantity': 0.001,
+                              'price': 80000,
+                              'recvWindow': 5000,
+                              'timestamp': int(time() * 1000)},
+         True, "POST"),
     ]
 
-    # Testing function to make API calls and use rate limiter
 
     def test_rate_limiter(rate_limiter):
-        for endpoint, weight in ENDPOINTS:
+        for endpoint, weight, params, signed, method in CALLS:
             url = BASE_URL + endpoint
 
-            can = rate_limiter.can_make_request(weight=weight, is_order=False)
+            can = rate_limiter.can_make_request(weight=weight, is_order=url == "/api/v3/order")
             print(f"\nCan make request to {endpoint} w={weight}: {can}\n{rate_limiter.get()}\n")
 
             # Make the API call
             if can:
-                response = requests.get(url)
-            else:
-                print(f"Cannot make request to {endpoint}. Rate limit exceeded.")
-                continue
-
-            if response.status_code == 200:
-                headers = dict(response.headers)
-
-                # Log and update the rate limiter based on headers
+                if method == "GET":
+                    response, headers = get(url, params=params, full_sign=signed)
+                elif method == "POST":
+                    response, headers = post(url, params=params, full_sign=signed)
+                else:
+                    raise ValueError(f"Unsupported method: {method}")
                 x_headers = {h: v for h, v in headers.items() if h.startswith('x-mbx-')}
                 print(f"Response Headers for {endpoint}: {x_headers}")
                 rate_limiter.update_from_headers(headers)
             else:
-                print(f"Failed to make request to {endpoint}. Status Code: {response.status_code}")
+                print(f"Cannot make request to {endpoint}. Rate limit exceeded.")
+                continue
 
 
     # Initialize your BinanceRateLimiter
     rate_limiter = BinanceRateLimiter(
         rate_limit_per_minute=1200,
         rate_limit_per_second=10,
-        weight_limit_per_ten_seconds=10,
+        orders_limit_per_ten_seconds=10,
         weight_limit_per_minute=50000,
         rate_limit_per_day=65000,
         info_level="DEBUG"

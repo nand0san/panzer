@@ -6,38 +6,8 @@ from panzer.logs import LogManager
 from panzer.errors import BinanceRequestHandler
 from panzer.signatures import RequestSigner
 
-logger = LogManager(filename="logs/request.log", info_level="DEBUG")
+logger = LogManager(filename="logs/request.log", info_level="INFO")
 signer = RequestSigner()
-
-# float_api_items = ['price', 'origQty', 'executedQty', 'cummulativeQuoteQty', 'stopLimitPrice', 'stopPrice', 'commission', 'qty',
-#                    'origQuoteOrderQty', 'makerCommission', 'takerCommission']
-# int_api_items = ['orderId', 'orderListId', 'transactTime', 'tradeId', 'transactionTime', 'updateTime', 'time']
-
-
-# def convert_response_type(response_data: dict or list) -> dict or list:
-#     """
-#     Infers types into api response and changes those.
-#
-#     :param dict or list response_data: API response json loaded.
-#     :return dict or list: Typed API data in response..
-#     """
-#
-#     if type(response_data) == dict:
-#         response = response_data.copy()
-#         for k, v in response.items():
-#             if k in float_api_items:
-#                 response[k] = float(v)
-#             elif k in int_api_items:
-#                 response[k] = int(v)
-#             elif type(v) == dict:
-#                 response[k] = convert_response_type(v)
-#             elif type(v) == list:
-#                 response[k] = [convert_response_type(ii) for ii in v]
-#     elif type(response_data) == list:
-#         response = [convert_response_type(iii) for iii in response_data]
-#     else:
-#         response = response_data
-#     return response
 
 
 def params_clean_none(params: Union[List[Tuple[str, Union[str, int]]], Dict[str, Union[str, int]]],
@@ -111,7 +81,7 @@ def call(mode: str,
          semi_signed: Optional[bool] = False,
          full_sign: bool = False,
          server_time_offset: int = 0,
-         recvWindow: int = 10000) -> Union[Dict, List]:
+         recvWindow: int = 10000) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
     """
     Sends a GET request to the Binance API. Before the request, it calculates the weight and waits enough time
     to avoid exceeding the rate limit for that endpoint.
@@ -131,8 +101,8 @@ def call(mode: str,
     :param server_time_offset: Server to host time delay (server - host)
     :param recvWindow: Milliseconds the request is valid for, defaults to 10000.
     :type recvWindow: int
-    :return: The API response as a dictionary or list.
-    :rtype: Union[Dict, List]
+    :return: The API response as a dictionary or list and headers.
+    :rtype: Union[Tuple[Dict, Dict], Tuple[List, Dict]]
     """
     mode = mode.strip().upper()
     logger.debug(f"{mode}: {locals()}")
@@ -157,7 +127,8 @@ def call(mode: str,
         raise ValueError(f"Invalid mode: {mode}")
 
     BinanceRequestHandler.handle_exception(response=response)
-    return response.json()
+
+    return response.json(), dict(response.headers)
 
 
 def get(url: str,
@@ -166,7 +137,7 @@ def get(url: str,
         full_sign: bool = False,
         semi_signed: bool = False,
         server_time_offset: int = 0,
-        recvWindow: int = 10000) -> Union[Dict, List]:
+        recvWindow: int = 10000) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
     """
     Sends a GET request to the Binance API. Before the request, it calculates the weight and waits enough time
     to avoid exceeding the rate limit for that endpoint.
@@ -184,8 +155,8 @@ def get(url: str,
     :param server_time_offset: Server to host time delay (server - host)
     :param recvWindow: Milliseconds the request is valid for, defaults to 10000.
     :type recvWindow: int
-    :return: The API response as a dictionary or list.
-    :rtype: Union[Dict, List]
+    :return: The API response as a dictionary or list and headers.
+    :rtype: Union[Tuple[Dict, Dict], Tuple[List, Dict]]
     """
     return call(mode="GET", url=url, params=params, headers=headers, semi_signed=semi_signed, full_sign=full_sign,
                 server_time_offset=server_time_offset, recvWindow=recvWindow)
@@ -197,7 +168,7 @@ def post(url: str,
          full_sign: bool = False,
          semi_signed: bool = False,
          server_time_offset: int = 0,
-         recvWindow: int = 10000) -> Union[Dict, List]:
+         recvWindow: int = 10000) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
     """
     Sends a POST request to the Binance API. Before the request, it calculates the weight and waits enough time
     to avoid exceeding the rate limit for that endpoint.
@@ -216,8 +187,8 @@ def post(url: str,
     :type server_time_offset: int
     :param recvWindow: Milliseconds the request is valid for, defaults to 10000.
     :type recvWindow: int
-    :return: The API response as a dictionary or list.
-    :rtype: Union[Dict, List]
+    :return: The API response as a dictionary or list and headers.
+    :rtype: Union[Tuple[Dict, Dict], Tuple[List, Dict]]
     """
     return call(mode="POST", url=url, params=params, headers=headers, semi_signed=semi_signed, full_sign=full_sign,
                 server_time_offset=server_time_offset, recvWindow=recvWindow)
@@ -229,7 +200,7 @@ def delete(url: str,
            full_sign: bool = False,
            semi_signed: bool = False,
            server_time_offset: int = 0,
-           recvWindow: int = 10000) -> Union[Dict, List]:
+           recvWindow: int = 10000) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
     """
     Sends a DELETE request to the Binance API. Before the request, it calculates the weight and waits enough time
     to avoid exceeding the rate limit for that endpoint.
@@ -248,8 +219,8 @@ def delete(url: str,
     :type server_time_offset: int
     :param recvWindow: Milliseconds the request is valid for, defaults to 10000.
     :type recvWindow: int
-    :return: The API response as a dictionary or list.
-    :rtype: Union[Dict, List]
+    :return: The API response as a dictionary or list and headers.
+    :rtype: Union[Tuple[Dict, Dict], Tuple[List, Dict]]
     """
     return call(mode="DELETE", url=url, params=params, headers=headers, semi_signed=semi_signed, full_sign=full_sign,
                 server_time_offset=server_time_offset, recvWindow=recvWindow)
