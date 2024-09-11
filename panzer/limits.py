@@ -1,358 +1,114 @@
 from typing import Union
 from time import time
 
+from panzer.request import get
 from panzer.logs import LogManager
-from panzer.time import second, ten_seconds, minute, hour, day, update_server_time_offset
+from panzer.time import second, ten_seconds, minute, five_minutes, hour, day, update_server_time_offset
 
 
-# class BinanceLimitsFetcher:
-#
-#     def __init__(self, info_level="INFO"):
-#         self.BASE_URL = BASE_URL
-#         self.EXCHANGE_INFO_ENDPOINT = EXCHANGE_INFO_ENDPOINT
-#         self.MARGIN_ACCOUNT_ENDPOINT = MARGIN_ACCOUNT_ENDPOINT
-#         self.FUTURES_BASE_URL = FUTURES_BASE_URL
-#         self.FUTURES_EXCHANGE_INFO_ENDPOINT = FUTURES_EXCHANGE_INFO_ENDPOINT
-#
-#         self.url = urljoin(self.BASE_URL, self.EXCHANGE_INFO_ENDPOINT)
-#
-#         self.spot_url = urljoin(self.BASE_URL, self.EXCHANGE_INFO_ENDPOINT)
-#         self.margin_url = urljoin(self.BASE_URL, self.MARGIN_ACCOUNT_ENDPOINT)
-#         self.futures_url = urljoin(self.FUTURES_BASE_URL, self.FUTURES_EXCHANGE_INFO_ENDPOINT)
-#
-#         self.logger = LogManager(filename='logs/limits.log', info_level=info_level)
-#         self.signer = RequestSigner(info_level=info_level)
-#
-#     @staticmethod
-#     def _get_limits(url: str) -> Dict[str, Dict[str, str]]:
-#         """
-#         Fetches and returns the limits from a given URL endpoint.
-#
-#         :param url: The API endpoint to fetch limits from.
-#         :return: A dictionary of limits.
-#         """
-#         response = requests.get(url)
-#         if response.status_code != 200:
-#             raise Exception(f"Error fetching limits from {url}: {response.status_code} - {response.text}")
-#
-#         return response.json()
-#
-#     @staticmethod
-#     def parse_limits(data: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
-#         """
-#         Parses the API response to extract rate limits.
-#
-#         :param data: The JSON response containing limits information.
-#         :return: A dictionary with the parsed limits.
-#         """
-#         limits = data.get('rateLimits', [])
-#         parsed_limits = {}
-#
-#         for limit in limits:
-#             limit_type = limit.get('rateLimitType')
-#             interval = limit.get('interval')
-#             interval_num = limit.get('intervalNum')
-#             max_limit = limit.get('limit')
-#
-#             key = f"{limit_type}_{interval_num}{interval.lower()}"
-#             parsed_limits[key] = {
-#                 'type': limit_type,
-#                 'cycle': f"{interval_num} {interval.lower()}",
-#                 'max_requests': max_limit
-#             }
-#
-#         return parsed_limits
-#
-#     def get_spot_limits(self):
-#         """
-#         Fetches and parses the limits for SPOT trading from Binance API.
-#
-#         :return: A dictionary with the SPOT trading limits.
-#         """
-#         data = self._get_limits(self.spot_url)
-#         return self.parse_limits(data)
-#
-#     def get_margin_limits(self):
-#         """
-#         Fetches and parses the limits for MARGIN trading from Binance API.
-#         Note: Margin trading doesn't provide rateLimits directly, so limits may need to be derived from response headers.
-#
-#         :return: A dictionary with margin-related limits.
-#         """
-#         data = self._get_limits(self.margin_url)
-#
-#         # For Margin, the response might not directly have 'rateLimits', so we can parse necessary data.
-#         # Here we assume we might parse headers or other specific limits relevant to margin trading.
-#         margin_limits = {
-#             "marginAccount": {
-#                 "borrowLimit": data.get("totalAssetOfBtc"),  # Example limit
-#                 "totalMarginBalance": data.get("totalNetAssetOfBtc")
-#             }
-#         }
-#         return margin_limits
-#
-#     def get_futures_limits(self):
-#         """
-#         Fetches and parses the limits for FUTURES trading from Binance API.
-#
-#         :return: A dictionary with the FUTURES trading limits.
-#         """
-#         data = self._get_limits(self.futures_url)
-#         return self.parse_limits(data)
-#
-#     def get_all_limits(self):
-#         """
-#         Fetches and aggregates limits from SPOT, MARGIN, and FUTURES into a single dictionary.
-#
-#         :return: A dictionary with all limits.
-#         """
-#         limits = {
-#             'spot': self.get_spot_limits(),
-#             'margin': self.get_margin_limits(),
-#             'futures': self.get_futures_limits()
-#         }
-#         return limits
-#
-#     def print_limits(self):
-#         """
-#         Prints the limits obtained for SPOT, MARGIN, and FUTURES in a formatted manner.
-#         """
-#         all_limits = self.get_all_limits()
-#
-#         for api_type, limits in all_limits.items():
-#             print(f"\n--- Límites para {api_type.upper()} ---")
-#             if isinstance(limits, dict):
-#                 for key, value in limits.items():
-#                     if isinstance(value, dict):
-#                         print(f"{key}:")
-#                         for sub_key, sub_value in value.items():
-#                             print(f"  {sub_key}: {sub_value}")
-#                     else:
-#                         print(f"{key}: {value}")
-#             else:
-#                 print(limits)
-#
-#     def __repr__(self):
-#         return self.print_limits()
-#
-#
-# class BinanceAPILimitsManager:
-#     """
-#     Manages the API limits for each type of header in the response from the Binance API. Assumes that headers are shared across all API endpoints
-#     returning that type of header. For instance, the 'X-SAPI-USED-IP-WEIGHT-1M' header is shared by all endpoints that return it. This class helps
-#     in preventing exceeding the API's rate limits, thus avoiding HTTP 429 (Too Many Requests) errors and possible IP bans by dynamically adjusting
-#     request rates according to the limits.
-#     """
-#
-#     def __init__(self, info_level='INFO'):
-#         """
-#         Initializes the Binance API limits manager with logging, current limits, and server time offset.
-#
-#         :param info_level: The logging level for the LogManager. Defaults to 'INFO'.
-#         """
-#         self.logger = LogManager(filename="limits.log", info_level=info_level)
-#         self.limits_response = self.get_exchange_limits()
-#         self.time_server_offset = self.get_server_time() - int(time() * 1000)
-#         self.rate_limits_ms = self.parse_weight_limits(self.limits_response)
-#         self.symbol_limits = pd.DataFrame(self.limits_response['symbols'])
-#         self.endpoint_headers = {}
-#         self.header_limits = {'X-SAPI-USED-IP-WEIGHT-1M': self.rate_limits_ms['REQUEST_1M'],
-#                               'X-SAPI-USED-UID-WEIGHT-1M': self.rate_limits_ms['REQUEST_1M'],
-#                               'x-mbx-used-weight': self.rate_limits_ms['REQUEST_5M'],
-#                               'x-mbx-used-weight-1m': self.rate_limits_ms['REQUEST_1M'],
-#                               'x-mbx-order-count-10s': self.rate_limits_ms['ORDERS_10S'],
-#                               'x-mbx-order-count-1d': self.rate_limits_ms['ORDERS_1D']}
-#         self.current_header_weights = {}
-#         self.header_renewal_timestamp = {}
-#
-#     @staticmethod
-#     def get_exchange_limits() -> dict:
-#         """
-#         Fetches the API limits information from Binance by making a request to the /api/v3/exchangeInfo endpoint.
-#         This information is crucial for preventing API rate limit violations.
-#
-#         Limit Types:
-#         - REQUEST_WEIGHT: Applied to the total request weight in a time frame. Each request has an assigned weight,
-#           reflecting its processing cost. It affects most API requests.
-#         - ORDERS: Specific to order creation or cancellation requests, limiting the number allowed in a timeframe.
-#         - RAW_REQUESTS: Refers to the total number of HTTP requests, regardless of their weight or type. It limits the total request count.
-#
-#         Response Data Format:
-#         - rateLimitType: The limit type (REQUEST_WEIGHT, ORDERS, RAW_REQUESTS).
-#         - interval: Time unit for the limit (SECOND, MINUTE, HOUR, DAY).
-#         - intervalNum: Number of time units.
-#         - limit: Maximum allowed in the specified interval.
-#
-#         .. code-block:: python
-#
-#             # rateLimits key
-#             [
-#                 {'rateLimitType': 'REQUEST_WEIGHT', 'interval': 'MINUTE', 'intervalNum': 1, 'limit': 6000},
-#                 {'rateLimitType': 'ORDERS', 'interval': 'SECOND', 'intervalNum': 10, 'limit': 100},
-#                 {'rateLimitType': 'ORDERS', 'interval': 'DAY', 'intervalNum': 1, 'limit': 200000},
-#                 {'rateLimitType': 'RAW_REQUESTS', 'interval': 'MINUTE', 'intervalNum': 5, 'limit': 61000}
-#             ]
-#
-#         """
-#         response = requests.get(url=EXCHANGE_INFO_ENDPOINT, params=None, headers=None)
-#         return response.json()
-#
-#     def parse_weight_limits(self, response: Dict) -> Dict[str, int]:
-#         """
-#         Parses the API response to obtain weight limits for rate limiting purposes.
-#
-#         Example:
-#
-#             {'REQUEST_1M': 6000,
-#              'ORDERS_10S': 100,
-#              'ORDERS_1D': 200000,
-#              'REQUEST_5M': 61000}
-#         """
-#         try:
-#             limits = response['rateLimits']
-#         except KeyError:
-#             self.logger.error(f"Error: No limits found in the response: {response}, applying default limits.")
-#             # Default limits if not found in the response
-#             limits = [{'rateLimitType': 'REQUEST_WEIGHT', 'interval': 'MINUTE', 'intervalNum': 1, 'limit': 6000},
-#                       {'rateLimitType': 'ORDERS', 'interval': 'SECOND', 'intervalNum': 10, 'limit': 100},
-#                       {'rateLimitType': 'ORDERS', 'interval': 'DAY', 'intervalNum': 1, 'limit': 200000},
-#                       {'rateLimitType': 'RAW_REQUESTS', 'interval': 'MINUTE', 'intervalNum': 5, 'limit': 61000}]
-#
-#         limits_dict = {}
-#         for limit in limits:
-#             if 'REQUEST' in limit['rateLimitType']:
-#                 interval = f"{limit['intervalNum']}{limit['interval'][0]}"
-#                 limits_dict[f'REQUEST_{interval}'] = limit['limit']
-#             elif 'ORDERS' in limit['rateLimitType']:
-#                 interval = f"{limit['intervalNum']}{limit['interval'][0]}"
-#                 limits_dict[f'ORDERS_{interval}'] = limit['limit']
-#             else:
-#                 msg = f"BinPan error: Unknown limit from API: {limit}"
-#                 raise Exception(msg)
-#         return limits_dict
-#
-#     def register_header_for_endpoint(self, endpoint: str, header: str):
-#         """
-#         Registers API header information for weight control, maintaining an inventory of headers for each endpoint.
-#
-#         :param endpoint: The API endpoint path.
-#         :param header: The response header to be registered.
-#         """
-#         if header not in self.endpoint_headers.setdefault(endpoint, []):
-#             self.endpoint_headers[endpoint].append(header)
-#             self.logger.info(f"Endpoint header weight control updated: {endpoint} -> {header}")
-#
-#     @staticmethod
-#     def get_server_time(base_url='https://api.binance.com', endpoint='/api/v3/time') -> int:
-#         """
-#         Fetches the current server time from the Binance API.
-#
-#         :return: The server time as a Unix timestamp in milliseconds.
-#         """
-#         url = urljoin(base_url, endpoint)
-#         response = requests.get(url=url, params=None, headers=None)
-#         return int(response.json()['serverTime'])
-#
-#     def parse_response_headers(self, response: requests.Response) -> Dict[str, int]:
-#         """
-#         Parses API response headers to obtain the weights of the requests.
-#
-#         :param response: The API response.
-#         :return: A dictionary containing the weights of the requests.
-#         """
-#         weight_headers = {}
-#         for k, v in response.headers.items():
-#             if 'WEIGHT' in k.upper() or 'COUNT' in k.upper():
-#                 try:
-#                     weight_headers[k] = int(v)
-#                 except ValueError:
-#                     self.logger.debug(f"Failed to convert header value to integer: {k}={v}.")
-#                     continue
-#             self.logger.debug(f"Header from API response: {k}={v}")
-#         return weight_headers
-#
-#     def update(self, response: requests.Response, endpoint: str):
-#         """
-#         Updates header weights based on the API response. This method is used for across-endpoint header weight control.
-#         """
-#         headers_weight = self.parse_response_headers(response)
-#
-#         for header, weight in headers_weight.items():
-#             self.register_header_for_endpoint(endpoint=endpoint, header=header)
-#             self.current_header_weights[header] = weight
-#
-#     def get_limit_refresh_timestamp_ms(self, header: str) -> int:
-#         """
-#         Calculates the timestamp in milliseconds when a header's limit will be refreshed.
-#
-#         :param header: The header name.
-#         :return: The refresh timestamp in milliseconds.
-#         """
-#         limit_ms = self.rate_limits_ms[header]
-#         now = int(time() * 1000) + self.time_server_offset
-#         cycle_ms = now % limit_ms
-#         remaining_ms = limit_ms - cycle_ms
-#         return now + remaining_ms
-#
-#     def check_and_wait_timestamp(self, endpoint: str):
-#         """
-#         Checks and waits for a timestamp to become available for a given endpoint.
-#
-#         :param endpoint: The requested API endpoint.
-#         """
-#         for header in self.endpoint_headers.get(endpoint, []):
-#             header_current_weight = self.current_header_weights.get(header, 0)
-#             header_weight_limit = self.header_limits[header]
-#
-#             if header_current_weight < header_weight_limit:
-#                 continue
-#             else:
-#                 self.logger.warning(f"Header {header} reached its limit of {header_weight_limit} with {header_current_weight}.")
-#                 refresh_timestamp = self.get_limit_refresh_timestamp_ms(header=header)
-#                 # Update the endpoint timestamp
-#                 self.time_server_offset = self.get_server_time() - int(time() * 1000)
-#                 now = int(time() * 1000) + self.time_server_offset
-#                 seconds_wait = (refresh_timestamp - now) / 1000
-#                 self.logger.warning(f"Waiting {seconds_wait} seconds until timestamp is available.")
-#                 sleep(max(seconds_wait, 0))
-#                 break  # Prevent multiple waits for endpoints with more than one header
+def fetch_rate_limits():
+    """
+    Fetches the rate limits from Binance API and returns them as a dictionary.
+
+    API example response:
+
+        [{'rateLimitType': 'REQUEST_WEIGHT',
+          'interval': 'MINUTE',
+          'intervalNum': 1,
+          'limit': 6000},
+         {'rateLimitType': 'ORDERS',
+          'interval': 'SECOND',
+          'intervalNum': 10,
+          'limit': 100},
+         {'rateLimitType': 'ORDERS',
+          'interval': 'DAY',
+          'intervalNum': 1,
+          'limit': 200000},
+         {'rateLimitType': 'RAW_REQUESTS',
+          'interval': 'MINUTE',
+          'intervalNum': 5,
+          'limit': 61000}]
+
+    :return: A dictionary with different rate limits for requests and orders.
+    """
+    url = 'https://api.binance.com/api/v3/exchangeInfo'
+
+    try:
+        # Make a request to fetch exchange information
+        data, headers = get(url)
+        rate_limits = {}
+
+        # Parse the rate limits from the response
+        print(f"Rate limits: {data['rateLimits']}")
+
+        for limit_ in data.get('rateLimits', []):
+            limit_type = limit_.get('rateLimitType')
+            interval = limit_.get('interval')
+            interval_num = limit_.get('intervalNum')
+            limit_value = limit_.get('limit')
+
+            # Fill in the dictionary with appropriate values
+            if limit_type == 'REQUEST_WEIGHT' and interval == 'MINUTE':
+                assert interval_num == 1, f"Invalid interval number for REQUEST_WEIGHT 1 MINUTE: {interval_num}"
+                rate_limits['weight_limit_per_minute'] = limit_value
+
+            elif limit_type == 'ORDERS' and interval == 'SECOND':
+                assert interval_num == 10, f"Invalid interval number for ORDERS 10 SECOND: {interval_num}"
+                rate_limits['orders_limit_per_ten_seconds'] = limit_value
+
+            elif limit_type == 'ORDERS' and interval == 'DAY':
+                assert interval_num == 1, f"Invalid interval number for ORDERS 1 DAY: {interval_num}"
+                rate_limits['orders_limit_per_day'] = limit_value
+
+            elif limit_type == 'RAW_REQUESTS' and interval == 'MINUTE':
+                assert interval_num == 5, f"Invalid interval number for RAW_REQUESTS 5 MINUTE: {interval_num}"
+                rate_limits['raw_limit_per_5_minutes'] = limit_value
+
+        return rate_limits
+
+    except Exception as e:
+        print(f"Error fetching rate limits: {e}")
+        return None
 
 
 class BinanceRateLimiter:
     def __init__(self,
-                 rate_limit_per_minute: int = 1200,
-                 rate_limit_per_second: int = 10,
-                 weight_limit_per_minute: int = 50000,
-                 orders_limit_per_ten_seconds: int = 10,
-                 orders_limit_per_day: int = 65000,
+                 rate_limits: dict = None,
                  info_level: str = "INFO"):
         """
         Initializes the class with specified limits.
 
-        :param rate_limit_per_minute: Maximum number of requests allowed per minute.
-        :param rate_limit_per_second: Maximum number of requests allowed per second.
-        :param weight_limit_per_minute: Maximum total request weight allowed per minute.
+        Example of expected rate_limits:
+
+            {'weight_limit_per_minute': 6000,
+                'orders_limit_per_ten_seconds': 100,
+                'orders_limit_per_day': 200000,
+                'raw_limit_per_5_minutes': 61000}
+
+        :param rate_limits: A dictionary with rate limits.
         :param info_level: The log level for the logger.
         """
         self.logger = LogManager(filename='logs/limits.log', info_level=info_level)
         self.server_time_offset = 0
 
         # Request rate limits
-        self.rate_limit_per_second = rate_limit_per_second  # Max requests per second
-        self.rate_limit_per_minute = rate_limit_per_minute  # Max requests per minute
+        boot_weight = 0
+        if rate_limits is None:
+            rate_limits = fetch_rate_limits() | dict()
+            boot_weight += 20
 
-        self.orders_limit_per_ten_seconds = orders_limit_per_ten_seconds  # 10s order quantity limit
-        self.orders_limit_per_day = orders_limit_per_day
-
-        # Request weight limit
-        self.weight_limit_per_minute = weight_limit_per_minute  # Max request weight per minute
+        self.raw_limit_per_5_minutes = rate_limits.get('raw_limit_per_5_minutes', 50000)
+        self.orders_limit_per_ten_seconds = rate_limits.get('orders_limit_per_ten_seconds', 10)
+        self.orders_limit_per_day = rate_limits.get('orders_limit_per_day', 150000)
+        self.weight_limit_per_minute = rate_limits.get('weight_limit_per_minute', 5000)
 
         # Track current request counts and weights
-        self.minutes_weights = {}
+        self.minutes_weights = {self._get_current_minute(): boot_weight}
 
-        self.seconds_counts = {}
+        # self.seconds_counts = {}
+        # self.minutes_counts = {}
+        self.five_minutes_counts = {self._get_current_five_minutes(): 1}
         self.ten_seconds_orders_counts = {}
-        self.minutes_counts = {}
         self.daily_orders_count = {}
 
         # clean counters and offset updates
@@ -367,21 +123,25 @@ class BinanceRateLimiter:
 
         :return: The updated server time offset in milliseconds.
         """
-        current_second = self._get_current_second()
+        # current_second = self._get_current_second()
         current_minute = self._get_current_minute()
-        seconds_count = self.seconds_counts.get(current_second, 0) + 1
-        minutes_count = self.minutes_counts.get(current_minute, 0) + 1
+        current_five_minutes = self._get_current_five_minutes()
+
+        # seconds_count = self.seconds_counts.get(current_second, 0) + 1
+        # minutes_count = self.minutes_counts.get(current_minute, 0) + 1
+        five_minutes_count = self.five_minutes_counts.get(current_five_minutes, 0) + 1
         minutes_weights = self.minutes_weights.get(current_minute, 0) + 1
 
-        if seconds_count <= self.rate_limit_per_second and minutes_count <= self.rate_limit_per_minute and minutes_weights <= self.weight_limit_per_minute:
+        if five_minutes_count <= self.raw_limit_per_5_minutes and minutes_weights <= self.weight_limit_per_minute:
             if hasattr(self, 'server_time_offset'):
                 self.server_time_offset = update_server_time_offset(self.server_time_offset)
             else:
                 self.server_time_offset = update_server_time_offset()
             # update counts because of update of server time offset
-            self.seconds_counts.update({current_second: seconds_count})
-            self.minutes_counts.update({current_minute: minutes_count})
+            # self.seconds_counts.update({current_second: seconds_count})
+            # self.minutes_counts.update({current_minute: minutes_count})
             self.minutes_weights.update({current_minute: minutes_weights})
+            self.five_minutes_counts.update({current_five_minutes: five_minutes_count})
             return self.server_time_offset
         else:
             self.logger.warning(f"Bypassed update server-local time offset. Rate limiter overload: \n{self.get()}")
@@ -422,6 +182,18 @@ class BinanceRateLimiter:
         corrected_time = current_time + self.server_time_offset
         return minute(corrected_time)
 
+    def _get_current_five_minutes(self):
+        """
+        Returns the current five minutes using server time or local time,
+        adjusted with the server time offset.
+
+        :return: The current five minutes (server time).
+        """
+        # Get current UTC time
+        current_time = int(time() * 1000)
+        corrected_time = current_time + self.server_time_offset
+        return five_minutes(corrected_time)
+
     def _get_current_hour(self):
         """
         Returns the current hour using server time or local time,
@@ -451,10 +223,12 @@ class BinanceRateLimiter:
         # Remove old entries
         self.minutes_weights = {k: self.minutes_weights[k] for k in sorted(list(self.minutes_weights.keys()))[-3:]}
 
-        self.seconds_counts = {k: self.seconds_counts[k] for k in sorted(list(self.seconds_counts.keys()))[-3:]}
-        self.minutes_counts = {k: self.minutes_counts[k] for k in sorted(list(self.minutes_counts.keys()))[-3:]}
+        # self.seconds_counts = {k: self.seconds_counts[k] for k in sorted(list(self.seconds_counts.keys()))[-3:]}
+        # self.minutes_counts = {k: self.minutes_counts[k] for k in sorted(list(self.minutes_counts.keys()))[-3:]}
+        self.five_minutes_counts = {k: self.five_minutes_counts[k] for k in sorted(list(self.five_minutes_counts.keys()))[-3:]}
 
-        self.ten_seconds_orders_counts = {k: self.ten_seconds_orders_counts[k] for k in sorted(list(self.ten_seconds_orders_counts.keys()))[-3:]}
+        self.ten_seconds_orders_counts = {k: self.ten_seconds_orders_counts[k] for k in
+                                          sorted(list(self.ten_seconds_orders_counts.keys()))[-3:]}
         self.daily_orders_count = {k: self.daily_orders_count[k] for k in sorted(list(self.daily_orders_count.keys()))[-3:]}
 
         self.logger.debug(f"Cleaned counters: {self.get()}")
@@ -462,11 +236,17 @@ class BinanceRateLimiter:
     def get(self):
         """Get current counter values."""
         return {
-            "seconds_counts": self.seconds_counts,
+            "orders_limit_per_ten_seconds": self.orders_limit_per_ten_seconds,
+            "orders_limit_per_day": self.orders_limit_per_day,
+            "weight_limit_per_minute": self.weight_limit_per_minute,
+            "raw_limit_per_5_minutes": self.raw_limit_per_5_minutes,
+
+            "server_time_offset": self.server_time_offset,
+
+            "five_minutes_counts": self.five_minutes_counts,
+            "minutes_weights": self.minutes_weights,
             "ten_seconds_orders_counts": self.ten_seconds_orders_counts,
-            "minutes_counts": self.minutes_counts,
             "daily_orders_count": self.daily_orders_count,
-            "minutes_weights": self.minutes_weights
         }
 
     def can_make_request(self, weight: int, is_order: bool) -> bool:
@@ -477,44 +257,40 @@ class BinanceRateLimiter:
         :param is_order: Whether the request is for an order. This adds to the ten seconds limit.
         :return: True if the request can be made, False otherwise.
         """
-        current_second = self._get_current_second()
+        # current_second = self._get_current_second()
         current_ten_seconds = self._get_current_ten_seconds()
         current_minute = self._get_current_minute()
+        current_five_minutes = self._get_current_five_minutes()
         current_hour = self._get_current_hour()
         current_day = self._get_current_day()
 
         current_minute_weight = self.minutes_weights.get(current_minute, 0)
-        current_second_count = self.seconds_counts.get(current_second, 0)
-        current_ten_seconds_orders_counts = self.ten_seconds_orders_counts.get(current_ten_seconds, 0)
-        current_minute_count = self.minutes_counts.get(current_minute, 0)
+        # current_second_count = self.seconds_counts.get(current_second, 0)
+        current_ten_seconds_orders_count = self.ten_seconds_orders_counts.get(current_ten_seconds, 0)
         current_day_count = self.daily_orders_count.get(current_day, 0)
-
-        # Reset counters if minute or second changes
-        if current_second_count + 1 > self.rate_limit_per_second:
-            return False
-        else:
-            self.seconds_counts.update({current_second: current_second_count + 1})
-
-        if is_order and (current_ten_seconds_orders_counts + 1) > self.orders_limit_per_ten_seconds:
-            return False
-        elif is_order:
-            self.ten_seconds_orders_counts.update({current_ten_seconds: current_ten_seconds_orders_counts + 1})
-
-        if current_minute_count + 1 > self.rate_limit_per_minute:
-            return False
-        else:
-            self.minutes_counts.update({current_minute: current_minute_count + 1})
-
-        if current_day_count + 1 > self.orders_limit_per_day:
-            return False
-        else:
-            self.daily_orders_count.update({current_day: current_day_count + 1})
+        # current_minute_count = self.minutes_counts.get(current_minute, 0)
+        current_five_minutes_count = self.five_minutes_counts.get(current_five_minutes, 0)
 
         # weight limit per minute
         if current_minute_weight + weight > self.weight_limit_per_minute:
             return False
         else:
             self.minutes_weights.update({current_minute: current_minute_weight + weight})
+
+        if current_five_minutes_count + 1 > self.raw_limit_per_5_minutes:
+            return False
+        else:
+            self.five_minutes_counts.update({current_five_minutes: current_five_minutes_count + 1})
+
+        if is_order and (current_ten_seconds_orders_count + 1) > self.orders_limit_per_ten_seconds:
+            return False
+        elif is_order:
+            self.ten_seconds_orders_counts.update({current_ten_seconds: current_ten_seconds_orders_count + 1})
+
+        if is_order and current_day_count + 1 > self.orders_limit_per_day:
+            return False
+        elif is_order:
+            self.daily_orders_count.update({current_day: current_day_count + 1})
 
         # cleaning and update offsets
         if current_minute >= self.minute_for_clean or current_hour >= self.hour_for_clean:
@@ -593,6 +369,10 @@ class BinanceRateLimiter:
 
 
 if __name__ == "__main__":
+    # # Example usage
+    # limits = fetch_rate_limits()
+    # if limits:
+    #     print(limits)
 
     from panzer.request import get, post
 
@@ -664,18 +444,12 @@ if __name__ == "__main__":
                 rate_limiter.update_from_headers(headers)
             else:
                 raise Exception(f"Cannot make request to {endpoint}. Rate limit exceeded.")
-
+        # loop for overcharging
         test_rate_limiter(rate_limiter)
 
+
     # Initialize your BinanceRateLimiter
-    rate_limiter = BinanceRateLimiter(
-        rate_limit_per_minute=1200,
-        rate_limit_per_second=10,
-        orders_limit_per_ten_seconds=10,
-        weight_limit_per_minute=50000,
-        orders_limit_per_day=65000,
-        info_level="DEBUG"
-    )
+    rate_limiter = BinanceRateLimiter(info_level="DEBUG")
 
     # Test the rate limiter with the public endpoints
     test_rate_limiter(rate_limiter)

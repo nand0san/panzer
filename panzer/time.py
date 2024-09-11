@@ -37,7 +37,7 @@ def second(time_milliseconds: int) -> int:
     :param time_milliseconds: The time in milliseconds.
     :return: The second part of the given time.
     """
-    return int(time_milliseconds // 1000)
+    return int(time_milliseconds / 1000)
 
 
 def ten_seconds(time_milliseconds: int) -> int:
@@ -47,7 +47,7 @@ def ten_seconds(time_milliseconds: int) -> int:
     :param time_milliseconds: The time in milliseconds.
     :return: The ten-second part of the given time.
     """
-    return int(time_milliseconds // 10000)
+    return int(time_milliseconds / 10000)
 
 
 def minute(time_milliseconds: int) -> int:
@@ -57,7 +57,17 @@ def minute(time_milliseconds: int) -> int:
     :param time_milliseconds: The time in milliseconds.
     :return: The minute part of the given time.
     """
-    return int(time_milliseconds / 60000) * 60000
+    return int(time_milliseconds / 60000)
+
+
+def five_minutes(time_milliseconds: int) -> int:
+    """
+    Returns the five-minute part of a given time in milliseconds.
+
+    :param time_milliseconds: The time in milliseconds.
+    :return: The five-minute part of the given time.
+    """
+    return int(time_milliseconds / 300000)
 
 
 def hour(time_milliseconds: int) -> int:
@@ -67,7 +77,7 @@ def hour(time_milliseconds: int) -> int:
     :param time_milliseconds: The time in milliseconds.
     :return: The hour part of the given time.
     """
-    return int(time_milliseconds / 3600000) * 3600000
+    return int(time_milliseconds / 3600000)
 
 
 def day(time_milliseconds: int) -> int:
@@ -77,7 +87,7 @@ def day(time_milliseconds: int) -> int:
     :param time_milliseconds: The time in milliseconds.
     :return: The day part of the given time.
     """
-    return int(time_milliseconds / 86400000) * 86400000
+    return int(time_milliseconds / 86400000)
 
 
 def update_server_time_offset(server_time_offset: int = 0):
