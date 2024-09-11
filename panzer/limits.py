@@ -561,7 +561,7 @@ class BinanceRateLimiter:
             self.minutes_weights.update({current_minute: int(normalized_headers['x-mbx-used-weight-1m'])})
 
         # Get X-MBX-used-weight-10s
-        registered = self.ten_seconds_orders_counts.get(current_minute, 0)
+        registered = self.ten_seconds_orders_counts.get(current_ten_seconds, 0)
         delta2 = self.wrong_registered_value(header='x-mbx-order-count-10s', normalized_headers=normalized_headers, registered_weight=registered)
         if delta2:
             self.ten_seconds_orders_counts.update({current_ten_seconds: int(normalized_headers['x-mbx-order-count-10s'])})
@@ -607,15 +607,34 @@ if __name__ == "__main__":
                               'recvWindow': 5000,
                               'timestamp': int(time() * 1000)},
          True, "POST"),
+        ('/api/v3/order', 1, {'symbol': "BTCUSDT",
+                              'side': "SELL",
+                              'type': "LIMIT",
+                              'timeInForce': 'GTC',  # Good 'Til Canceled
+                              'quantity': 0.001,
+                              'price': 80000,
+                              'recvWindow': 5000,
+                              'timestamp': int(time() * 1000)},
+         True, "POST"),
+        ('/api/v3/order', 1, {'symbol': "BTCUSDT",
+                              'side': "SELL",
+                              'type': "LIMIT",
+                              'timeInForce': 'GTC',  # Good 'Til Canceled
+                              'quantity': 0.001,
+                              'price': 80000,
+                              'recvWindow': 5000,
+                              'timestamp': int(time() * 1000)},
+         True, "POST"),
     ]
 
 
     def test_rate_limiter(rate_limiter):
         for endpoint, weight, params, signed, method in CALLS:
             url = BASE_URL + endpoint
-
-            can = rate_limiter.can_make_request(weight=weight, is_order=url == "/api/v3/order")
-            print(f"\nCan make request to {endpoint} w={weight}: {can}\n{rate_limiter.get()}\n")
+            is_order = url.endswith("/api/v3/order")
+            can = rate_limiter.can_make_request(weight=weight, is_order=is_order)
+            print(f"\n----------------\n"
+                  f"Can make request to {endpoint} w={weight} is_order={is_order} can_make={can}\n{rate_limiter.get()}\n")
 
             # Make the API call
             if can:
