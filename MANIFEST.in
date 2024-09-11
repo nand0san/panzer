@@ -1,1 +1,6 @@
+# Excluir archivos jupyter
 global-exclude *.ipynb
+global-exclude *.ipynb_checkpoints
+
+# Excluir archivos de logs
+global-exclude *.log

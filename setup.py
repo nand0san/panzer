@@ -10,6 +10,7 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/nand0san/panzer',  # Asegúrate de poner la URL correcta
     packages=find_packages(),
+    include_package_data=True,  # Asegura que se respete MANIFEST.in
     install_requires=[
         # Aquí puedes poner una lista de dependencias necesarias, por ejemplo:
         # 'requests',
