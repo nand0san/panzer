@@ -69,7 +69,6 @@ def sign_request(params: Union[Dict[str, Union[str, int]], List[Tuple[str, Union
                                            server_time_offset=server_time_offset)
     else:
         headers = signer.add_api_key_to_headers(headers=headers)
-
     return params_tuples, headers
 
 
@@ -126,7 +125,6 @@ def call(mode: str,
         raise ValueError(f"Invalid mode: {mode}")
 
     BinanceRequestHandler.handle_exception(response=response)
-
     return response.json(), dict(response.headers)
 
 
@@ -245,5 +243,3 @@ if __name__ == "__main__":
         print(f"Account information: {response}")
     except Exception as e:
         logger.error(f"Error fetching account information: {str(e)}")
-
-    pass

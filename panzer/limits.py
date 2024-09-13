@@ -1,5 +1,5 @@
 from typing import Union
-from time import time
+from time import time, sleep
 
 from panzer.request import get
 from panzer.logs import LogManager
@@ -112,7 +112,7 @@ class BinanceRateLimiter:
         self.daily_orders_count = {}
 
         # clean counters and offset updates
-        self.clean_period_minutes = 7  # minutes
+        self.clean_period_minutes = 7  # minutes para actualizar offset y limpieza de limites registrados
         self.minute_for_clean = minute(time_milliseconds=int(time() * 1000)) + self.clean_period_minutes
         self.hour_for_clean = hour(time_milliseconds=int(time() * 1000)) + 1
         self._update_server_time_offset()
@@ -249,12 +249,77 @@ class BinanceRateLimiter:
             "daily_orders_count": self.daily_orders_count,
         }
 
-    def can_make_request(self, weight: int, is_order: bool) -> bool:
+    def _check_limit(self, current_value: int, limit: int, current_interval: int, interval_duration: int) -> Union[int, None]:
+        """
+        Verifies if the current value exceeds the limit for a given interval and returns the wait time if needed.
+
+        :param current_value: The current number of requests/orders/weight within the interval.
+        :param limit: The allowed limit within the interval.
+        :param current_interval: The current time unit (in seconds) for the interval (e.g., minute, hour, etc.).
+        :param interval_duration: The duration of the interval (e.g., 60 seconds for minute, 300 seconds for 5 minutes).
+        :return: The number of seconds to wait if the limit is exceeded, or None if the limit is not exceeded.
+        """
+        if current_value >= limit:
+            next_interval_start = (current_interval + interval_duration)  # Calculate the next interval start time
+            current_time = int(time())  # utc seconds
+            wait_time = next_interval_start - current_time
+            self.logger.warning(f"Limit exceeded: waiting for {wait_time} seconds.")
+            return wait_time
+        return None
+
+    def wait_for_api(self):
+        """Identifies which limit is overloaded and waits until the end of the limit cycle to renew the limit."""
+
+        current_ten_seconds = self._get_current_ten_seconds()
+        current_minute = self._get_current_minute()
+        current_five_minutes = self._get_current_five_minutes()
+        current_day = self._get_current_day()
+
+        # Check minute weight limit
+        wait_time = self._check_limit(current_value=self.minutes_weights.get(current_minute, 0),
+                                      limit=self.weight_limit_per_minute,
+                                      current_interval=current_minute,
+                                      interval_duration=60)
+        if wait_time:
+            self.logger.warning(f"Minute weight limit exceeded: waiting for {wait_time} seconds.")
+            sleep(wait_time)
+
+        # Check ten-second orders limit
+        wait_time = self._check_limit(current_value=self.ten_seconds_orders_counts.get(current_ten_seconds, 0),
+                                      limit=self.orders_limit_per_ten_seconds,
+                                      current_interval=current_ten_seconds,
+                                      interval_duration=10)
+        if wait_time:
+            self.logger.warning(f"Ten-second orders limit exceeded: waiting for {wait_time} seconds.")
+            sleep(wait_time)
+
+        # Check five-minute raw request limit
+        wait_time = self._check_limit(current_value=self.five_minutes_counts.get(current_five_minutes, 0),
+                                      limit=self.raw_limit_per_5_minutes,
+                                      current_interval=current_five_minutes,
+                                      interval_duration=300)
+        if wait_time:
+            self.logger.warning(f"Five-minute raw request limit exceeded: waiting for {wait_time} seconds.")
+            sleep(wait_time)
+
+        # Check daily orders limit
+        wait_time = self._check_limit(current_value=self.daily_orders_count.get(current_day, 0),
+                                      limit=self.orders_limit_per_day,
+                                      current_interval=current_day,
+                                      interval_duration=86400)
+        if wait_time:
+            self.logger.warning(f"Daily orders limit exceeded: waiting for {wait_time} seconds.")
+            sleep(wait_time)
+
+        self.logger.info("API limits reset, proceeding with requests.")
+
+    def can_make_request(self, weight: int, is_order: bool, wait_mode: bool = True) -> bool:
         """
         Checks whether a request can be made without exceeding the rate or weight limits.
 
         :param weight: The weight of the current request.
         :param is_order: Whether the request is for an order. This adds to the ten seconds limit.
+        :param wait_mode: If True, waits for the limit to reset before making the request.
         :return: True if the request can be made, False otherwise.
         """
         # current_second = self._get_current_second()
@@ -273,22 +338,38 @@ class BinanceRateLimiter:
 
         # weight limit per minute
         if current_minute_weight + weight > self.weight_limit_per_minute:
-            return False
+            if wait_mode:
+                self.wait_for_api()
+                return self.can_make_request(weight, is_order, wait_mode)
+            else:
+                return False
         else:
             self.minutes_weights.update({current_minute: current_minute_weight + weight})
 
         if current_five_minutes_count + 1 > self.raw_limit_per_5_minutes:
-            return False
+            if wait_mode:
+                self.wait_for_api()
+                return self.can_make_request(weight, is_order, wait_mode)
+            else:
+                return False
         else:
             self.five_minutes_counts.update({current_five_minutes: current_five_minutes_count + 1})
 
         if is_order and (current_ten_seconds_orders_count + 1) > self.orders_limit_per_ten_seconds:
-            return False
+            if wait_mode:
+                self.wait_for_api()
+                return self.can_make_request(weight, is_order, wait_mode)
+            else:
+                return False
         elif is_order:
             self.ten_seconds_orders_counts.update({current_ten_seconds: current_ten_seconds_orders_count + 1})
 
         if is_order and current_day_count + 1 > self.orders_limit_per_day:
-            return False
+            if wait_mode:
+                self.wait_for_api()
+                return self.can_make_request(weight, is_order, wait_mode)
+            else:
+                return False
         elif is_order:
             self.daily_orders_count.update({current_day: current_day_count + 1})
 
@@ -325,9 +406,12 @@ class BinanceRateLimiter:
 
         :param normalized_headers: The normalized response headers from a Binance API call.
         """
-        expected_headers = {'x-mbx-uuid', 'x-mbx-traceid',
-                            'x-mbx-used-weight', 'x-mbx-used-weight-1m',
-                            'x-mbx-order-count-10s', 'x-mbx-order-count-1d'}
+        expected_headers = {'x-mbx-uuid',
+                            'x-mbx-traceid',
+                            'x-mbx-used-weight',
+                            'x-mbx-used-weight-1m',
+                            'x-mbx-order-count-10s',
+                            'x-mbx-order-count-1d'}
         unexpected_headers = set(normalized_headers) - expected_headers
         if unexpected_headers:
             self.logger.error(f"Unexpected X-MBX headers: {unexpected_headers}")
@@ -367,13 +451,23 @@ class BinanceRateLimiter:
         # check for new headers
         self.verify_unknown_headers(normalized_headers)
 
+    def __repr__(self):
+        """
+        Returns a string representation of the BinanceRateLimiter object.
+
+        The string representation includes the current rate limits for requests and orders, as well as the server time offset.
+
+        :return: A string representation of the BinanceRateLimiter object.
+        """
+        return f"BinanceRateLimit(weight_limit_per_minute={self.weight_limit_per_minute}, " \
+               f"raw_limit_per_5_minutes={self.raw_limit_per_5_minutes}, " \
+               f"orders_limit_per_ten_seconds={self.orders_limit_per_ten_seconds}, " \
+               f"orders_limit_per_day={self.orders_limit_per_day}, " \
+               f"clean_period_minutes={self.clean_period_minutes}, " \
+               f"server_time_offset={self.server_time_offset}, "
+
 
 if __name__ == "__main__":
-    # # Example usage
-    # limits = fetch_rate_limits()
-    # if limits:
-    #     print(limits)
-
     from panzer.request import get, post
 
     # Define base URL for Binance API
@@ -445,7 +539,7 @@ if __name__ == "__main__":
             else:
                 raise Exception(f"Cannot make request to {endpoint}. Rate limit exceeded.")
         # loop for overcharging
-        test_rate_limiter(rate_limiter)
+        # test_rate_limiter(rate_limiter)
 
 
     # Initialize your BinanceRateLimiter

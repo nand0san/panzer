@@ -12,126 +12,6 @@ from getpass import getpass
 from panzer.logs import LogManager
 
 
-# class SecretModuleImporterOld:
-#     """
-#     Class for flexibly searching and importing the 'secret.py' module
-#     from anywhere within the project directory hierarchy.
-#
-#     :param ask_for_missing: If True, the class will ask for missing keys and add them to the secret module ciphered.
-#     """
-#
-#     def __init__(self, ask_for_missing: bool = True):
-#         self.secret_module = None
-#         self.find_and_import_secret_module()
-#         self.ask_missing = ask_for_missing
-#         self.cipher = AesCipher()
-#
-#     def find_and_import_secret_module(self) -> bool:
-#         """
-#         Searches for and imports the 'secret.py' module.
-#
-#         :return: True if the module was found and successfully loaded, False otherwise.
-#         """
-#         current_dir = os.path.abspath(os.curdir)
-#         while True:
-#             try:
-#                 self.secret_module = importlib.import_module('secret')
-#                 print("SECRET module found and imported!")
-#                 return True
-#             except ModuleNotFoundError:
-#                 parent_dir = os.path.dirname(current_dir)
-#
-#                 if parent_dir == current_dir:  # it is at the top of the file system
-#                     print("SECRET module not found!")
-#                     return False
-#
-#                 current_dir = parent_dir
-#                 sys.path.insert(0, current_dir)
-#
-#     def get_secret(self, secret_name: str) -> Union[None, str]:
-#         """
-#         Retrieves a secret by name from the imported 'secret' module.
-#
-#         :param secret_name: The name of the secret to retrieve.
-#         :return: The value of the secret if it exists, None otherwise.
-#         """
-#         if self.secret_module and hasattr(self.secret_module, secret_name):
-#             return getattr(self.secret_module, secret_name)
-#         else:
-#             if self.ask_missing:
-#                 self.add_key_to_secret(key_name=secret_name)
-#                 return self.get_secret(secret_name=secret_name)
-#             else:
-#                 raise Exception(f"Secret '{secret_name}' not found in module.")
-#
-#     def add_key_to_secret(self, key_name: str) -> None:
-#         """
-#         Checks if exists in a file and if not, then adds a line with the api key value for working with the package.
-#
-#         :param str key_name: Variable name to import it later.
-#         """
-#         assert type(key_name) == str, "The key name must be a string."
-#         filename = "secret.py"
-#         saved_data = self.read_file(filename=filename)
-#         lines = []
-#         for line in saved_data:
-#             if line:
-#                 if not line.strip().startswith(key_name):
-#                     lines.append(line.strip())
-#         new_key = input(f"Missing key '{key_name}'. Please enter the value: ")
-#
-#         encrypted = self.cipher.encrypt(new_key)
-#         lines.append(f'{key_name} = "{encrypted}"')
-#         self.save_file(filename=filename, data=lines)
-#         # import again the module
-#         self.unload_imported_module()
-#         self.find_and_import_secret_module()
-#
-#     @staticmethod
-#     def read_file(filename: str) -> list:
-#         """
-#         Read a file to a list of strings each line.
-#
-#         :return list: list with a string each row in the file.
-#         """
-#         if not os.path.isfile(filename):
-#             return []
-#         with open(filename, 'r') as f:
-#             lines = f.readlines()
-#             lines = [line.rstrip() for line in lines if line]
-#         return lines
-#
-#     @staticmethod
-#     def save_file(filename: str, data: list, mode='w') -> None:
-#         """
-#         Save a new file from a list of lists each line.
-#
-#         :param str filename: a file name to save.
-#         :param list data: Data in a list of strings each line.
-#         :param str mode: 'w' to rewrite full file or 'a' to append to existing file.
-#
-#         """
-#         with open(filename, mode) as f:
-#             for line in sorted(data):
-#                 f.write(str(line) + '\n')
-#
-#     def unload_imported_module(self):
-#         """
-#         Unloads the imported 'secret' module, allowing it to be re-imported to reflect any changes.
-#         """
-#         module_name = 'secret'
-#         if module_name in sys.modules:
-#             del sys.modules[module_name]
-#             # print("SECRET module unloaded!")
-#             self.secret_module = None
-#
-#     def __str__(self):
-#         return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
-#
-#     def __repr__(self):
-#         return f"SecretModuleImporter(ask_for_missing={self.ask_missing})"
-
-
 class AesCipher(object):
     """
     Encryption object.
@@ -288,42 +168,44 @@ class CredentialFileManager:
 
     def add_variable_to_file(self, variable_name: str, variable_value: str, is_sensitive: bool) -> str:
         """
-        Añade o reemplaza una variable en el archivo de credenciales.
+        Adds or replaces a variable in the credentials file.
 
-        Si la variable ya existe, se reemplaza su valor. Si no existe, se añade una nueva línea con la variable.
+        If the variable already exists, its value will be replaced. If it does not exist, a new line with the variable will be added.
 
-        :param variable_name: Nombre de la variable.
-        :param variable_value: Valor de la variable.
-        :param is_sensitive: Si es sensible, la cifrará.
-        :return: El valor almacenado. Cifrado si es sensible.
+        :param variable_name: Name of the variable.
+        :param variable_value: Value of the variable.
+        :param is_sensitive: If it is sensitive, it will be encrypted.
+        :return: The value stored. Encrypted if it is sensitive.
         """
         if is_sensitive:
             variable_value = self.cipher.encrypt(variable_value)
 
-        # Leer todas las líneas del archivo
+        # Read all lines of the file
         if os.path.exists(self.filepath):
             with open(self.filepath, 'r') as f:
                 lines = f.readlines()
         else:
             lines = []
 
-        # Buscar si la variable ya existe en el archivo
+        # Check if the variable already exists in the file
         variable_found = False
-        with open(self.filepath, 'w') as f:
-            for line in lines:
-                if line.startswith(f"{variable_name} ="):
-                    # Si la variable ya existe, reemplaza su valor
-                    f.write(f'{variable_name} = "{variable_value}"\n')
-                    variable_found = True
-                else:
-                    # Mantener el resto de las líneas intactas
-                    f.write(line)
+        for line in lines:
+            if line.startswith(f"{variable_name} ="):
+                variable_found = True
 
-            # Si la variable no fue encontrada, añadirla al final
-            if not variable_found:
+        # If the variable was not found, add it to the end
+        if not variable_found:
+            # Open the file in append mode to add the variable
+            with open(self.filepath, 'a') as f:
                 f.write(f'{variable_name} = "{variable_value}"\n')
+            self.logger.info(f"Variable {variable_name} added to credentials file.")
+            return variable_value
+        else:
+            self.logger.info(f"Variable {variable_name} exists in cache file. "
+                             f"To renew it delete line in cache file at: {self.filepath}")
+            # return file value
+            return self._read_variable(variable_name)
 
-        return variable_value
 
     def get_or_prompt_variable(self, variable_name: str, prompt: bool = True) -> str:
         """
@@ -411,8 +293,9 @@ class CredentialManager:
         if is_sensitive:
             variable_value = self.encrypt_value(variable_value)
         self.credentials.update({variable_name: variable_value})
-        # verifica si esta en el archivo y si no lo está la añade. Como ya viene cifrada se graba en modo no sensitive para evitar recifrados.
-        self._save(variable_name, variable_value, is_sensitive=False)
+        # verifies if it is in the file and if it is not, it adds it.
+        # Since it already comes encrypted, it saves it in non-sensitive mode to avoid re-encryption.
+        variable_value = self._save(variable_name, variable_value, is_sensitive=False)
         return variable_value
 
     def _save(self, variable_name: str, variable_value: str, is_sensitive: bool):
@@ -425,7 +308,7 @@ class CredentialManager:
         :return:
         """
         # sensitive en false, si es o no sensible, debe haberse gestionado anteriormente.
-        self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=is_sensitive)
+        return self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=is_sensitive)
 
     def __repr__(self) -> str:
         return self.credentials.__repr__()
