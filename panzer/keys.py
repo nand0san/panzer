@@ -206,7 +206,6 @@ class CredentialFileManager:
             # return file value
             return self._read_variable(variable_name)
 
-
     def get_or_prompt_variable(self, variable_name: str, prompt: bool = True) -> str:
         """
         Obtiene el valor de una variable del archivo de credenciales, tal y como esté, o la solicita si no existe.

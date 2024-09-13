@@ -1,8 +1,9 @@
-import json
-from panzer.logs import LogManager
 import requests
 from socket import gethostname
-from requests.exceptions import RequestException, HTTPError, ConnectionError, Timeout
+from requests.exceptions import HTTPError, ConnectionError, Timeout
+
+from panzer.logs import LogManager
+
 
 exceptions_logger = LogManager(filename='logs/exceptions.log', name='exceptions', info_level='DEBUG')
 hostname = gethostname() + ' exceptions '

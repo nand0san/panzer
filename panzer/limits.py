@@ -1,9 +1,9 @@
 from typing import Union
 from time import time, sleep
 
-from panzer.request import get
 from panzer.logs import LogManager
 from panzer.time import second, ten_seconds, minute, five_minutes, hour, day, update_server_time_offset
+from panzer.request import get
 
 
 def fetch_rate_limits():

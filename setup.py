@@ -1,5 +1,6 @@
 from setuptools import setup, find_packages
 
+
 setup(
     name='panzer',
     version='0.1.0',
@@ -27,16 +28,8 @@ setup(
         'Operating System :: OS Independent',
     ],
     python_requires='>=3.11',  # Asegúrate de especificar la versión de Python necesaria
-    # Incluye archivos no Python si es necesario
-    include_package_data=False,
     package_data={
         # Si hay datos como .json o .txt que necesitas incluir, especifica aquí
     },
-    # Opcionalmente, si tu paquete es una herramienta de línea de comandos
-    # entry_points={
-    #     'console_scripts': [
-    #         # 'nombre-del-comando = modulo.paquete:funcion'
-    #     ],
-    # },
-    exclude_package_data={'': ['*.ipynb']},  # Exclusión de notebooks
+    exclude_package_data={'': ['*.ipynb', '*.ipynb_checkpoints/*']},  # Exclusión de notebooks y checkpoints
 )

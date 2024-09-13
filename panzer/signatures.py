@@ -1,10 +1,7 @@
 import hashlib
 import hmac
 import time
-# from fileinput import filename
 from typing import Union, List, Tuple
-
-# from win32comext.adsi.demos.scp import logger
 
 from panzer.keys import CredentialManager
 from panzer.logs import LogManager
