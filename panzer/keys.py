@@ -89,11 +89,11 @@ class SecureKeychain:
 
 
 class CredentialFileManager:
-    def __init__(self, filename='panzer.tmp', info_level: str = "INFO"):
+    def __init__(self, filename='.panzer_creds', info_level: str = "INFO"):
         """
         Inicializa la clase de gestión de credenciales. Busca o crea el archivo de credenciales.
         """
-        self.logger = LogManager(filename="credential_manager.log", info_level=info_level)
+        self.logger = LogManager(filename="credential_file_manager.log", name="credential_file_manager", info_level=info_level)
         self.filename = filename
         self.filepath = self.get_credentials_file_path()
         self.cipher = AesCipher()
@@ -166,7 +166,7 @@ class CredentialFileManager:
         self.add_variable_to_file(variable_name, user_input, is_sensitive=is_sensitive)
         return user_input
 
-    def add_variable_to_file(self, variable_name: str, variable_value: str, is_sensitive: bool) -> str:
+    def add_variable_to_file(self, variable_name: str, variable_value: str, is_sensitive: bool, overwrite: bool = False) -> str:
         """
         Adds or replaces a variable in the credentials file.
 
@@ -175,6 +175,7 @@ class CredentialFileManager:
         :param variable_name: Name of the variable.
         :param variable_value: Value of the variable.
         :param is_sensitive: If it is sensitive, it will be encrypted.
+        :param overwrite: If True, overwrites the existing variable.
         :return: The value stored. Encrypted if it is sensitive.
         """
         if is_sensitive:
@@ -200,9 +201,16 @@ class CredentialFileManager:
                 f.write(f'{variable_name} = "{variable_value}"\n')
             self.logger.info(f"Variable {variable_name} added to credentials file.")
             return variable_value
+        elif overwrite:
+            # Overwrite the existing variable
+            lines = [line.replace(f'{variable_name} = "{variable_value}"', f'{variable_name} = "{variable_value}"') for line in lines]
+            with open(self.filepath, 'w') as f:
+                f.writelines(lines)
+            self.logger.info(f"Variable {variable_name} updated in credentials file.")
+            return variable_value
         else:
             self.logger.info(f"Variable {variable_name} exists in cache file. "
-                             f"To renew it delete line in cache file at: {self.filepath}")
+                             f"To renew it, pass overwrite parameter to True or delete line in cache file at: {self.filepath}")
             # return file value
             return self._read_variable(variable_name)
 
@@ -248,7 +256,7 @@ class CredentialManager:
 
         :param info_level: Nivel de logging.
         """
-        self.logger = LogManager(filename="logs/credential_manager.log", info_level=info_level)
+        self.logger = LogManager(filename="logs/credential_manager.log", name="credential_manager", info_level=info_level)
         self.file_manager = CredentialFileManager()
         self.credentials = {}  # Diccionario para almacenar las credenciales en memoria, pertinentemente encriptadas.
 
@@ -280,13 +288,14 @@ class CredentialManager:
         else:
             return ret
 
-    def add(self, variable_name: str, variable_value: str, is_sensitive: bool) -> str:
+    def add(self, variable_name: str, variable_value: str, is_sensitive: bool, overwrite: bool = False) -> str:
         """
         Añade una variable en memoria, si es sensible, se almacena cifrada. También la almacena en disco.
 
         :param variable_name: Nombre de la variable a almacenar en memoria.
-        :param variable_value:
-        :param is_sensitive:
+        :param variable_value: Valor de la variable a almacenar en memoria
+        :param is_sensitive: Si es sensible, se cifrará al almacenarla.
+        :param overwrite: Si es True, sobreescribe la variable si ya existe en el archivo.
         :return:
         """
         if is_sensitive:
@@ -294,20 +303,21 @@ class CredentialManager:
         self.credentials.update({variable_name: variable_value})
         # verifies if it is in the file and if it is not, it adds it.
         # Since it already comes encrypted, it saves it in non-sensitive mode to avoid re-encryption.
-        variable_value = self._save(variable_name, variable_value, is_sensitive=False)
+        variable_value = self._save(variable_name, variable_value, is_sensitive=False, overwrite=overwrite)
         return variable_value
 
-    def _save(self, variable_name: str, variable_value: str, is_sensitive: bool):
+    def _save(self, variable_name: str, variable_value: str, is_sensitive: bool, overwrite: bool = False) -> str:
         """
         Almacena la variable en archivo. Si es o no sensible, debe haberse gestionado previamente.
 
         :param variable_name: Nombre de la variable que se desea almacenar.
         :param variable_value: Valor de la variable, cifrado o no, previamente se debe haber gestionado.
         :param is_sensitive: Si es sensible la cifrará al almacenarla. Si ya viene cifrada debe usarse en modo False.
+        :param overwrite: Si es True, sobreescribe la variable si ya existe en el archivo.
         :return:
         """
         # sensitive en false, si es o no sensible, debe haberse gestionado anteriormente.
-        return self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=is_sensitive)
+        return self.file_manager.add_variable_to_file(variable_name, variable_value, is_sensitive=is_sensitive, overwrite=overwrite)
 
     def __repr__(self) -> str:
         return self.credentials.__repr__()

@@ -25,7 +25,7 @@ class RequestSigner:
         """
 
         self.credentials = CredentialManager()
-        self.logger = LogManager(filename='logs/request_signer.log', info_level=info_level)
+        self.logger = LogManager(filename='logs/request_signer.log', name="request_signer", info_level=info_level)
 
     def __api_key(self) -> str:
         """

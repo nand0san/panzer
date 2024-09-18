@@ -5,7 +5,7 @@ from panzer.logs import LogManager
 from panzer.errors import BinanceRequestHandler
 from panzer.signatures import RequestSigner
 
-logger = LogManager(filename="logs/request.log", info_level="INFO")
+logger = LogManager(filename="logs/request.log", name="request", info_level="INFO")
 signer = RequestSigner()
 
 

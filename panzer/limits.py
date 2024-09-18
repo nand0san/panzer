@@ -3,7 +3,16 @@ from time import time, sleep
 
 from panzer.logs import LogManager
 from panzer.time import second, ten_seconds, minute, five_minutes, hour, day, update_server_time_offset
-from panzer.request import get
+from panzer.weights import WeightControl
+
+weight_control = WeightControl()
+
+expected_headers = {'x-mbx-uuid',
+                    'x-mbx-traceid',
+                    'x-mbx-used-weight',
+                    'x-mbx-used-weight-1m',
+                    'x-mbx-order-count-10s',
+                    'x-mbx-order-count-1d'}
 
 
 def fetch_rate_limits():
@@ -31,6 +40,8 @@ def fetch_rate_limits():
 
     :return: A dictionary with different rate limits for requests and orders.
     """
+    from panzer.request import get
+
     url = 'https://api.binance.com/api/v3/exchangeInfo'
 
     try:
@@ -88,7 +99,8 @@ class BinanceRateLimiter:
         :param rate_limits: A dictionary with rate limits.
         :param info_level: The log level for the logger.
         """
-        self.logger = LogManager(filename='logs/limits.log', info_level=info_level)
+        self.first_call = True
+        self.logger = LogManager(filename='logs/limits.log', name='limits', info_level=info_level)
         self.server_time_offset = 0
 
         # Request rate limits
@@ -313,15 +325,41 @@ class BinanceRateLimiter:
 
         self.logger.info("API limits reset, proceeding with requests.")
 
-    def can_make_request(self, weight: int, is_order: bool, wait_mode: bool = True) -> bool:
+    @staticmethod
+    def is_order_api_call(url: str) -> bool:
+        """
+        Checks if the provided URL corresponds to an order API call.
+
+        :param url: The URL to check.
+        :return: True if the URL is for an order API call, False otherwise.
+        """
+        # Check if the URL contains "orders" or "order"
+        return "order" in url
+
+    def can_make_request(self,
+                         url: str,
+                         params_qty: int,
+                         is_order: bool = None,
+                         weight: int = None,
+                         wait_mode: bool = True) -> bool:
         """
         Checks whether a request can be made without exceeding the rate or weight limits.
 
-        :param weight: The weight of the current request.
-        :param is_order: Whether the request is for an order. This adds to the ten seconds limit.
+        :param url: The URL of the request.
+        :param params_qty: The number of parameters to check against the rate limit.
+        :param is_order: Whether the request is for an order. This adds to the ten seconds limit. Optional. Can be automatically determined
+                         if not provided.
+        :param weight: The weight of the current request. Optional. If not provided, it will be obtained using the weight control.
         :param wait_mode: If True, waits for the limit to reset before making the request.
         :return: True if the request can be made, False otherwise.
         """
+
+        if is_order is None:
+            is_order = self.is_order_api_call(url)
+
+        if weight is None:
+            weight = weight_control.get(url=url, params_qty=params_qty)
+
         # current_second = self._get_current_second()
         current_ten_seconds = self._get_current_ten_seconds()
         current_minute = self._get_current_minute()
@@ -340,7 +378,7 @@ class BinanceRateLimiter:
         if current_minute_weight + weight > self.weight_limit_per_minute:
             if wait_mode:
                 self.wait_for_api()
-                return self.can_make_request(weight, is_order, wait_mode)
+                return self.can_make_request(url=url, params_qty=params_qty, is_order=is_order, weight=weight, wait_mode=wait_mode)
             else:
                 return False
         else:
@@ -349,7 +387,7 @@ class BinanceRateLimiter:
         if current_five_minutes_count + 1 > self.raw_limit_per_5_minutes:
             if wait_mode:
                 self.wait_for_api()
-                return self.can_make_request(weight, is_order, wait_mode)
+                return self.can_make_request(url=url, params_qty=params_qty, is_order=is_order, weight=weight, wait_mode=wait_mode)
             else:
                 return False
         else:
@@ -358,7 +396,7 @@ class BinanceRateLimiter:
         if is_order and (current_ten_seconds_orders_count + 1) > self.orders_limit_per_ten_seconds:
             if wait_mode:
                 self.wait_for_api()
-                return self.can_make_request(weight, is_order, wait_mode)
+                return self.can_make_request(url=url, params_qty=params_qty, is_order=is_order, weight=weight, wait_mode=wait_mode)
             else:
                 return False
         elif is_order:
@@ -367,7 +405,7 @@ class BinanceRateLimiter:
         if is_order and current_day_count + 1 > self.orders_limit_per_day:
             if wait_mode:
                 self.wait_for_api()
-                return self.can_make_request(weight, is_order, wait_mode)
+                return self.can_make_request(url=url, params_qty=params_qty, is_order=is_order, weight=weight, wait_mode=wait_mode)
             else:
                 return False
         elif is_order:
@@ -381,24 +419,42 @@ class BinanceRateLimiter:
             self._update_server_time_offset()
         return True
 
-    def wrong_registered_value(self, header: str, normalized_headers: dict, registered_weight: int) -> Union[int, None]:
+    def wrong_registered_value(self,
+                               url: str,
+                               params_qty: int,
+                               header: str,
+                               normalized_headers: dict,
+                               registered_weight: int,
+                               expected_weight: int = None) -> Union[int, None]:
         """
         Compares the weight of a given header in the response headers with the registered weight.
 
+        :param url: The URL of the API call.
+        :param params_qty: The parameters quantity in the API call.
         :param header: The header to compare.
         :param normalized_headers: The normalized response headers from a Binance API call.
         :param registered_weight: The registered weight for the header.
+        :param expected_weight: The expected weight for the url and parameters. Optional. If passed and no synchronization is needed,
+                            it will be saved in the file database for weight_control.
         :return: The delta deviation between the header value and the registered weight if there's a discrepancy. 0 if no discrepancy.
         """
         if not header in normalized_headers:
             # self.logger.debug(f"Header {header} not found in the response headers: {set(normalized_headers)}")
             return None
+
         header_value = int(normalized_headers.get(header, 0))
+
         if header_value != registered_weight:
             delta = header_value - registered_weight
-            self.logger.warning(f"Rate limit {header} not synced with the server. Expected: {registered_weight}, "
-                                f"Header: {header_value} Delta deviation: {delta}")
+            if not self.first_call:
+                self.logger.warning(f"Rate limit {header} not synced with the server. Expected: {registered_weight}, "
+                                    f"Header: {header_value} Delta deviation: {delta}")
             return delta
+        else:
+            self.first_call = False
+            if expected_weight is not None:
+                weight_control.update_weight(url=url, params_qty=params_qty, new_weight=expected_weight)
+            return
 
     def verify_unknown_headers(self, normalized_headers: dict) -> None:
         """
@@ -406,22 +462,21 @@ class BinanceRateLimiter:
 
         :param normalized_headers: The normalized response headers from a Binance API call.
         """
-        expected_headers = {'x-mbx-uuid',
-                            'x-mbx-traceid',
-                            'x-mbx-used-weight',
-                            'x-mbx-used-weight-1m',
-                            'x-mbx-order-count-10s',
-                            'x-mbx-order-count-1d'}
         unexpected_headers = set(normalized_headers) - expected_headers
         if unexpected_headers:
-            self.logger.error(f"Unexpected X-MBX headers: {unexpected_headers}")
-            raise ValueError(f"Unexpected X-MBX headers: {unexpected_headers}")
+            self.logger.warning(f"Unexpected X-MBX headers: {unexpected_headers}")
+            # raise ValueError(f"Unexpected X-MBX headers: {unexpected_headers}")
+            expected_headers.union(unexpected_headers)
 
-    def update_from_headers(self, headers: dict) -> None:
+    def update_from_headers(self, url: str, params_qty: int, headers: dict, expected_weight: int = None) -> None:
         """
         Updates rate limiter's internal counters based on the response headers from the Binance API.
 
+        :param url: The URL of the API call.
+        :param params_qty: The parameters quantity in the API call.
         :param headers: The response headers from a Binance API call.
+        :param expected_weight: The expected weight for the url and parameters. Optional. If passed and no synchronization is needed,
+                            it will be saved in the file database for weight_control.
         """
         current_ten_seconds = self._get_current_ten_seconds()
         current_minute = self._get_current_minute()
@@ -432,19 +487,25 @@ class BinanceRateLimiter:
 
         # Get X-MBX-used-weight-1m
         registered = self.minutes_weights.get(current_minute, 0)
-        delta1 = self.wrong_registered_value(header='x-mbx-used-weight-1m', normalized_headers=normalized_headers, registered_weight=registered)
+        delta1 = self.wrong_registered_value(url=url, params_qty=params_qty, header='x-mbx-used-weight-1m',
+                                             normalized_headers=normalized_headers, registered_weight=registered,
+                                             expected_weight=expected_weight)
         if delta1:
             self.minutes_weights.update({current_minute: int(normalized_headers['x-mbx-used-weight-1m'])})
 
         # Get X-MBX-used-weight-10s
         registered = self.ten_seconds_orders_counts.get(current_ten_seconds, 0)
-        delta2 = self.wrong_registered_value(header='x-mbx-order-count-10s', normalized_headers=normalized_headers, registered_weight=registered)
+        delta2 = self.wrong_registered_value(url=url, params_qty=params_qty, header='x-mbx-order-count-10s',
+                                             normalized_headers=normalized_headers, registered_weight=registered,
+                                             expected_weight=expected_weight)
         if delta2:
             self.ten_seconds_orders_counts.update({current_ten_seconds: int(normalized_headers['x-mbx-order-count-10s'])})
 
         # x-mbx-order-count-1d
         registered = self.daily_orders_count.get(current_day, 0)
-        delta3 = self.wrong_registered_value(header='x-mbx-order-count-1d', normalized_headers=normalized_headers, registered_weight=registered)
+        delta3 = self.wrong_registered_value(url=url, params_qty=params_qty, header='x-mbx-order-count-1d',
+                                             normalized_headers=normalized_headers, registered_weight=registered,
+                                             expected_weight=expected_weight)
         if delta3:
             self.daily_orders_count.update({current_day: int(normalized_headers['x-mbx-order-count-1d'])})
 
