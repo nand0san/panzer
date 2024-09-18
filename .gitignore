@@ -120,6 +120,7 @@ conf.py
 *.tar.gz
 *.pdf
 *.md
+!README.md
 *.json
 .idea/
 deploy.bat
