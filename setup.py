@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='panzer',
-    version='1.0.3',
+    version='1.0.4',
     author='nand0san',
     author_email='',
     description='REST API manager under development.',

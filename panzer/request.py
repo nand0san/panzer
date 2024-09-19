@@ -81,7 +81,7 @@ def call(mode: str,
          semi_signed: Optional[bool] = False,
          full_sign: bool = False,
          server_time_offset: int = 0,
-         recvWindow: int = 10000) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
+         recvWindow: int = None) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
     """
     Sends a GET request to the Binance API. Before the request, it calculates the weight and waits enough time
     to avoid exceeding the rate limit for that endpoint.
@@ -101,7 +101,7 @@ def call(mode: str,
     :param server_time_offset: Server to host time delay (server - host)
     :param recvWindow: Milliseconds the request is valid for, defaults to 10000.
     :type recvWindow: int
-    :return: The API response as a dictionary or list and headers.
+    :return: The API response as a dictionary or list and headers. Default is None, some endpoints require to not send recvWindow.
     :rtype: Union[Tuple[Dict, Dict], Tuple[List, Dict]]
     """
     mode = mode.strip().upper()
