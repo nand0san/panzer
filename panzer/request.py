@@ -63,10 +63,12 @@ def sign_request(params: Union[Dict[str, Union[str, int]], List[Tuple[str, Union
             params_tuples.append((k, v))
 
     headers = signer.add_api_key_to_headers(headers={})
+
     if full_sign:
         params_tuples = signer.sign_params(params=params_tuples,
                                            add_timestamp=not timestamped,
                                            server_time_offset=server_time_offset)
+        headers = signer.add_api_key_to_headers(headers=headers)
     else:
         headers = signer.add_api_key_to_headers(headers=headers)
     return params_tuples, headers
@@ -110,10 +112,10 @@ def call(mode: str,
                                        recvWindow=recvWindow,
                                        server_time_offset=server_time_offset)
     elif semi_signed:
-        headers = sign_request(params=params or [],
-                               full_sign=False,
-                               recvWindow=recvWindow,
-                               server_time_offset=server_time_offset)
+        params, headers = sign_request(params=params or [],
+                                       full_sign=False,
+                                       recvWindow=recvWindow,
+                                       server_time_offset=server_time_offset)
     if mode == "GET":
         response = requests.get(url=url, params=params, headers=headers)
     elif mode == "POST":
