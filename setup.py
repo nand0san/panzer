@@ -3,10 +3,10 @@ from setuptools import setup, find_packages
 
 setup(
     name='panzer',
-    version='1.0.5',
+    version='1.0.6',
     author='nand0san',
     author_email='',
-    description='REST API manager under development.',
+    description='REST API manager for Binance API. Manages weights and credentials simply and securely.',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     url='https://github.com/nand0san/panzer',  # Asegúrate de poner la URL correcta
