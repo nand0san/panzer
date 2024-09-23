@@ -9,25 +9,25 @@ logger = LogManager(filename="logs/request.log", name="request", info_level="INF
 signer = RequestSigner()
 
 
-def params_clean_none(params: Union[List[Tuple[str, Union[str, int]]], Dict[str, Union[str, int]]],
-                      recvWindow: int) -> Dict[str, Union[str, int]]:
+def clean_params(params: Union[List[Tuple[str, Union[str, int]]], Dict[str, Union[str, int]]],
+                 recvWindow: Union[None, int]) -> List[Tuple[str, Union[str, int]]]:
     """
     Cleans the parameters by removing any with a value of `None` and adds 'recvWindow' to the set of parameters.
 
     :param params: The parameters to be cleaned, can be a dictionary or a list of tuples.
     :type params: Union[List[Tuple[str, Union[str, int]]], Dict[str, Union[str, int]]]
     :param recvWindow: The 'recvWindow' value to be added to the parameters.
-    :type recvWindow: int
-    :return: The cleaned parameters as a dictionary with no `None` values and 'recvWindow' added.
-    :rtype: Dict[str, Union[str, int]]
+    :type recvWindow: int or None
+    :return: The cleaned parameters as a list of tuples.
+    :rtype: List[Tuple[str, Union[str, int]]]
     """
     if isinstance(params, dict):
         params['recvWindow'] = recvWindow
-        return {k: v for k, v in params.items() if v is not None}
+        return list({k: v for k, v in params.items() if v is not None}.items())
     elif isinstance(params, list):
         params.append(('recvWindow', recvWindow))
-        return {k: v for k, v in params if v is not None}
-    return {}
+        return list({k: v for k, v in params if v is not None}.items())
+    return []
 
 
 def sign_request(params: Union[Dict[str, Union[str, int]], List[Tuple[str, Union[str, int]]]],
@@ -50,11 +50,14 @@ def sign_request(params: Union[Dict[str, Union[str, int]], List[Tuple[str, Union
     """
     logger.debug(f"sign_request: {params}")
 
-    params = params_clean_none(params, recvWindow) if recvWindow else params
+    params_list = clean_params(params, recvWindow) if recvWindow else params
+
     timestamped = False
+
     params_tuples: List[Tuple[str, Union[str, int]]] = []
-    for k, v in params.items():
-        if isinstance(v, list):
+
+    for k, v in params_list:
+        if isinstance(v, list):  # expand repeated params
             for i in v:
                 params_tuples.append((k, i))
         else:
@@ -63,10 +66,12 @@ def sign_request(params: Union[Dict[str, Union[str, int]], List[Tuple[str, Union
             params_tuples.append((k, v))
 
     headers = signer.add_api_key_to_headers(headers={})
+
     if full_sign:
         params_tuples = signer.sign_params(params=params_tuples,
                                            add_timestamp=not timestamped,
                                            server_time_offset=server_time_offset)
+        headers = signer.add_api_key_to_headers(headers=headers)
     else:
         headers = signer.add_api_key_to_headers(headers=headers)
     return params_tuples, headers
@@ -79,7 +84,7 @@ def call(mode: str,
          semi_signed: Optional[bool] = False,
          full_sign: bool = False,
          server_time_offset: int = 0,
-         recvWindow: int = 10000) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
+         recvWindow: int = None) -> Union[Tuple[Dict, Dict], Tuple[List, Dict]]:
     """
     Sends a GET request to the Binance API. Before the request, it calculates the weight and waits enough time
     to avoid exceeding the rate limit for that endpoint.
@@ -99,7 +104,7 @@ def call(mode: str,
     :param server_time_offset: Server to host time delay (server - host)
     :param recvWindow: Milliseconds the request is valid for, defaults to 10000.
     :type recvWindow: int
-    :return: The API response as a dictionary or list and headers.
+    :return: The API response as a dictionary or list and headers. Default is None, some endpoints require to not send recvWindow.
     :rtype: Union[Tuple[Dict, Dict], Tuple[List, Dict]]
     """
     mode = mode.strip().upper()
@@ -110,10 +115,10 @@ def call(mode: str,
                                        recvWindow=recvWindow,
                                        server_time_offset=server_time_offset)
     elif semi_signed:
-        headers = sign_request(params=params or [],
-                               full_sign=False,
-                               recvWindow=recvWindow,
-                               server_time_offset=server_time_offset)
+        params, headers = sign_request(params=params or [],
+                                       full_sign=False,
+                                       recvWindow=recvWindow,
+                                       server_time_offset=server_time_offset)
     if mode == "GET":
         response = requests.get(url=url, params=params, headers=headers)
     elif mode == "POST":
