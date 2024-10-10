@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='panzer',
-    version='1.0.7',
+    version='1.0.8',
     author='nand0san',
     author_email='',
     description='REST API manager for Binance API. Manages weights and credentials simply and securely.',

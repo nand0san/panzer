@@ -121,6 +121,7 @@ conf.py
 *.pdf
 *.md
 !README.md
+!CHANGELOG.md
 *.json
 .idea/
 deploy.bat
