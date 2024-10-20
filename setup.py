@@ -8,7 +8,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='panzer',
-    version='1.0.8',
+    version='1.0.9',
     author='nand0san',
     author_email='',
     description='REST API manager for Binance API. Manages weights and credentials simply and securely.',
