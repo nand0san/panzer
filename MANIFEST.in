@@ -4,3 +4,5 @@ global-exclude *.ipynb_checkpoints
 
 # Excluir archivos de logs
 global-exclude *.log
+
+include requirements.txt
