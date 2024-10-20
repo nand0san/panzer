@@ -1,5 +1,10 @@
 from setuptools import setup, find_packages
+from pathlib import Path
 
+this_directory = Path(__file__).parent
+
+with open('requirements.txt') as f:
+    required_packages = f.read().splitlines()
 
 setup(
     name='panzer',
@@ -12,11 +17,8 @@ setup(
     url='https://github.com/nand0san/panzer',  # Asegúrate de poner la URL correcta
     packages=find_packages(),
     include_package_data=True,  # Asegura que se respete MANIFEST.in
-    install_requires=[
-        # Aquí puedes poner una lista de dependencias necesarias, por ejemplo:
-        # 'requests',
-        # 'urllib3',
-    ],
+    install_requires=required_packages,
+
     classifiers=[
         'Development Status :: 3 - Alpha',  # 3 - Alpha/4 - Beta/5 - Production/Stable
         'Intended Audience :: Developers',
