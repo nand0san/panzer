@@ -20,6 +20,7 @@ ya parseados en ExchangeRateLimits.
 from __future__ import annotations
 
 import time
+import threading
 from typing import Mapping, Optional
 
 from panzer.log_manager import LogManager
@@ -87,6 +88,20 @@ class BinanceFixedWindowLimiter:
             level="INFO",
         )
 
+        self._bucket_id: Optional[int] = None
+        self._used_local: int = 0
+        self._last_server_used: Optional[int] = None
+
+        self._logger = LogManager(
+            name="panzer.binance_rate_limit",
+            folder="logs",
+            filename="binance_rate_limit.log",
+            level="INFO",
+        )
+
+        # Nuevo: lock para uso concurrente seguro
+        self._lock = threading.Lock()
+
     # ==========================
     # Métodos auxiliares internos
     # ==========================
@@ -150,61 +165,55 @@ class BinanceFixedWindowLimiter:
         Reserva capacidad de peso en la ventana actual.
 
         Si el consumo local + weight supera el umbral de seguridad
-        (max_per_minute * safety_ratio), el método duerme hasta el inicio
-        del siguiente minuto antes de continuar.
-
-        :param weight: Peso de la operación a contabilizar.
-        :param now: Epoch actual en segundos. Normalmente None.
+        (max_per_minute * safety_ratio), este método duerme hasta el
+        inicio del siguiente minuto antes de continuar.
         """
         if weight <= 0:
             raise ValueError("weight debe ser mayor que cero")
 
-        if now is None:
-            now = time.time()
+        while True:
+            if now is None:
+                now = time.time()
 
-        # Actualizar ventana si ha cambiado
-        self._rollover_if_needed(now=now)
+            with self._lock:
+                # Actualizar ventana si ha cambiado
+                self._rollover_if_needed(now=now)
 
-        # Umbral efectivo por ventana
-        effective_limit = int(self.max_per_minute * self.safety_ratio)
+                effective_limit = int(self.max_per_minute * self.safety_ratio)
+                projected = self._used_local + weight
 
-        # Si vamos a pasarnos del umbral, esperamos al siguiente minuto
-        if self._used_local + weight > effective_limit:
-            # Momento de inicio de la siguiente ventana
-            current_window_start = self._bucket_id * 60  # type: ignore[arg-type]
-            next_window_start = current_window_start + 60
-            sleep_for = max(0.0, next_window_start - now)
+                if projected <= effective_limit:
+                    # Hay capacidad en esta ventana
+                    self._used_local = projected
+                    self._logger.debug(
+                        "Acquire: weight=%s, used_local=%s, max_per_minute=%s",
+                        weight,
+                        self._used_local,
+                        self.max_per_minute,
+                    )
+                    return
 
-            self._logger.warning(
-                "Límite de seguridad alcanzado (used_local=%s, weight=%s, "
-                "effective_limit=%s). Durmiendo %.2f segundos.",
-                self._used_local,
-                weight,
-                effective_limit,
-                sleep_for,
-            )
+                # No hay capacidad → calcular cuánto dormir
+                current_window_start = self._bucket_id * 60  # type: ignore[arg-type]
+                next_window_start = current_window_start + 60
+                sleep_for = max(0.0, next_window_start - now)
 
+                self._logger.warning(
+                    "Límite de seguridad alcanzado (used_local=%s, weight=%s, "
+                    "effective_limit=%s). Durmiendo %.2f segundos.",
+                    self._used_local,
+                    weight,
+                    effective_limit,
+                    sleep_for,
+                )
+
+            # Fuera del lock: dormimos y volvemos a intentar
             time.sleep(sleep_for)
-
-            # Tras dormir, nos movemos a la nueva ventana
-            now = time.time()
-            self._rollover_if_needed(now=now)
-
-        # Registrar el uso local
-        self._used_local += weight
-        self._logger.debug(
-            "Acquire: weight=%s, used_local=%s, max_per_minute=%s",
-            weight,
-            self._used_local,
-            self.max_per_minute,
-        )
+            now = None  # fuerza recálculo de time.time() en la siguiente iteración
 
     def update_from_headers(self, headers: Mapping[str, str]) -> None:
         """
-        Sincroniza el contador local con el valor enviado por Binance en
-        la cabecera X-MBX-USED-WEIGHT-1M (si está presente).
-
-        :param headers: Diccionario de cabeceras HTTP (case-insensitive).
+        Sincroniza el contador local con X-MBX-USED-WEIGHT-1M (si está presente).
         """
         server_used: Optional[int] = None
 
@@ -222,16 +231,16 @@ class BinanceFixedWindowLimiter:
         if server_used is None:
             return
 
-        self._last_server_used = server_used
+        with self._lock:
+            self._last_server_used = server_used
 
-        # Sincronizar contador local con el mayor de ambos valores
-        if server_used > self._used_local:
-            self._logger.debug(
-                "Sincronizando used_local con valor de servidor: %s -> %s",
-                self._used_local,
-                server_used,
-            )
-            self._used_local = server_used
+            if server_used > self._used_local:
+                self._logger.debug(
+                    "Sincronizando used_local con valor de servidor: %s -> %s",
+                    self._used_local,
+                    server_used,
+                )
+                self._used_local = server_used
 
     # ==========================
     # Constructores de conveniencia

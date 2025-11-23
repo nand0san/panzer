@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
-
+from panzer.errors import handle_response, BinanceAPIException
 
 # ==========================
 # URLs base /exchangeInfo
@@ -80,11 +80,21 @@ def _fetch_exchange_info(url: str, timeout: int = 10) -> Dict[str, Any]:
     :param url: URL absoluta al endpoint /exchangeInfo.
     :param timeout: Timeout de la petición HTTP en segundos.
     :return: Dict con el JSON de respuesta.
-    :raises requests.HTTPError: si la respuesta no es 2xx.
+    :raises BinanceAPIException: si la respuesta no es OK.
     """
     resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    # handle_response ya lanza BinanceAPIException si hay error (429, 5xx, etc.)
+    data = handle_response(resp)
+
+    # Para /exchangeInfo esperamos siempre un dict JSON
+    if not isinstance(data, dict):
+        raise BinanceAPIException(
+            status_code=resp.status_code,
+            method="GET",
+            url=url,
+            error_payload=None,
+        )
+    return data
 
 
 def _parse_rate_limits(payload: Dict[str, Any]) -> ExchangeRateLimits:
@@ -183,7 +193,6 @@ def get_futures_cm_rate_limits(timeout: int = 10) -> ExchangeRateLimits:
 
 
 if __name__ == "__main__":
-
     spot_limits = get_spot_rate_limits()
     fut_um_limits = get_futures_um_rate_limits()
     fut_cm_limits = get_futures_cm_rate_limits()

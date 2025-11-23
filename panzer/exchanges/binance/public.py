@@ -16,7 +16,8 @@ Características:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Optional
+from time import time as _time
+from typing import Any, Dict, Literal, Optional, Tuple
 
 from panzer.log_manager import LogManager
 from panzer.exchanges.binance.config import (
@@ -32,6 +33,7 @@ from panzer.http.client import (
     BINANCE_FUTURES_UM_BASE_URL,
     BINANCE_FUTURES_CM_BASE_URL,
 )
+from panzer.time_sync import TimeOffsetEstimator
 
 MarketType = Literal["spot", "um", "cm"]
 
@@ -85,7 +87,7 @@ def _load_limits_for_market(market: MarketType) -> ExchangeRateLimits:
         return get_futures_um_rate_limits()
     if market == "cm":
         return get_futures_cm_rate_limits()
-    raise ValueError(f"Mercado no soportado: {market}")
+    raise ValueError(f"Mercado no soportado: {market}, use one of: 'spot', 'um', 'cm'")
 
 
 # ==========================
@@ -120,30 +122,39 @@ class BinancePublicClient:
             Factor de seguridad para el rate limiter en (0, 1].
         """
         if market not in _MARKETS:
-            raise ValueError(f"Mercado no soportado: {market}")
+            raise ValueError(
+                f"Mercado no soportado: {market}, use one of: 'spot', 'um', 'cm'"
+            )
 
         self.market: MarketType = market
         self.config: _MarketConfig = _MARKETS[market]
 
-        # Logger específico del cliente
+        # Logger específico del cliente (usa firma real de LogManager)
         self._log = LogManager(
+            filename=f"binance_{market}.log",
             name=f"panzer.binance.{market}",
             folder="logs",
-            filename=f"binance_{market}.log",
-            level="INFO",
+            info_level="INFO",
         )
 
         # Carga dinámica de límites desde /exchangeInfo
         limits = _load_limits_for_market(market)
-        self._log.info(
-            f"Market={market} REQUEST_WEIGHT limit: {limits.request_weight}"
-        )
+        self._log.info(f"Market={market} REQUEST_WEIGHT limit: {limits.request_weight}")
 
         # Rate limiter ajustado al límite del mercado
         self._limiter = BinanceFixedWindowLimiter.from_exchange_limits(
             limits,
             safety_ratio=safety_ratio,
+            logger=LogManager(
+                filename="binance_rate_limit.log",
+                name="panzer.binance_rate_limit",
+                folder="logs",
+                info_level="WARNING",
+            ).logger,
         )
+
+        # Estimador de desfase de reloj
+        self._time_sync = TimeOffsetEstimator()
 
         self._log.info(
             f"BinancePublicClient inicializado para market={market}, "
@@ -160,9 +171,11 @@ class BinancePublicClient:
         params: Optional[Dict[str, Any]] = None,
         weight: int = 1,
         timeout: int = 10,
-    ) -> Any:
+    ) -> Tuple[Any, Dict[str, str]]:
         """
         Helper interno para hacer GETs públicos con rate limiting.
+
+        Devuelve (data, headers) y sincroniza el limiter con los headers.
         """
         self._log.debug(
             f"GET {self.config.base_url}{endpoint} "
@@ -178,37 +191,55 @@ class BinancePublicClient:
             timeout=timeout,
         )
 
+        # Sincronizar limiter con el contador real del servidor
+        self._limiter.update_from_headers(headers)
+
         self._log.debug(
             f"RESP {self.config.base_url}{endpoint} "
             f"used_local={self._limiter.used_local} "
-            f"server_used={self._limiter.last_server_used}"
+            f"server_used={self._limiter.last_server_used} "
+            f"hdr_used_1m={headers.get('x-mbx-used-weight-1m')}"
         )
 
-        return data
+        return data, headers
 
     # ==========================
     # Métodos públicos
     # ==========================
 
-    def get_time(self, timeout: int = 5) -> int:
+    def get_time(self, timeout: int = 5) -> Dict[str, Any]:
         """
-        Devuelve el tiempo de servidor en milisegundos desde epoch.
+        Devuelve el objeto JSON de `<time_endpoint>` del mercado actual
+        y actualiza el estimador de offset de reloj interno.
 
-        Endpoint:
-        - Spot: /api/v3/time
-        - Futuros UM: /fapi/v1/time
-        - Futuros CM: /dapi/v1/time
+        :param timeout: Timeout de la petición HTTP en segundos.
+        :return: Dict con la respuesta JSON de Binance.
         """
-        data = self._get(
+        data, headers = self._get(
             endpoint=self.config.time_endpoint,
             params=None,
             weight=1,
             timeout=timeout,
         )
-        # Todas las variantes devuelven {"serverTime": <int>}
-        server_time = int(data["serverTime"])
-        self._log.debug(f"serverTime={server_time}")
-        return server_time
+
+        # Actualizar estimador de offset si viene serverTime
+        server_time_ms_raw = data.get("serverTime")
+        try:
+            server_time_ms = int(server_time_ms_raw)
+        except (TypeError, ValueError):
+            server_time_ms = None
+
+        if server_time_ms is not None:
+            offset = self._time_sync.add_sample(
+                server_time_ms=server_time_ms,
+                local_now=_time(),
+            )
+            self._log.debug(
+                f"time_sync: server_time_ms={server_time_ms} "
+                f"offset_sec={offset:.3f}"
+            )
+
+        return data
 
     def get_exchange_info(self, timeout: int = 10) -> Dict[str, Any]:
         """
@@ -218,12 +249,14 @@ class BinancePublicClient:
         Para Futuros incluye símbolos y metadatos específicos del mercado.
         """
         # Este endpoint es pesado; con peso 10 nos mantenemos conservadores.
-        data = self._get(
+        data, _ = self._get(
             endpoint=self.config.exchange_info_endpoint,
             params=None,
             weight=10,
             timeout=timeout,
         )
+        if not isinstance(data, dict):
+            raise TypeError(f"Respuesta inesperada para exchangeInfo: {type(data)}")
         return data
 
     def get_klines(
@@ -265,7 +298,7 @@ class BinancePublicClient:
             params["endTime"] = int(end_time)
 
         # Peso típico de klines suele ser bajo; usamos 1 por defecto.
-        data = self._get(
+        data, _ = self._get(
             endpoint=self.config.klines_endpoint,
             params=params,
             weight=1,
@@ -282,6 +315,45 @@ class BinancePublicClient:
         )
 
         return data
+
+    @property
+    def time_offset_seconds(self) -> float:
+        """
+        Offset estimado actual (segundos) entre el reloj local y Binance.
+
+        Valor positivo -> el reloj de Binance va por delante del local.
+        Valor negativo -> el reloj de Binance va por detrás del local.
+        """
+        return self._time_sync.current_offset()
+
+    @property
+    def time_offset_ready(self) -> bool:
+        """
+        Indica si el estimador tiene suficientes muestras recientes como
+        para considerarse fiable.
+        """
+        return self._time_sync.is_ready()
+
+    def now_server_ms(self) -> int:
+        """
+        Devuelve un 'ahora' en milisegundos según el reloj de Binance,
+        usando el offset estimado.
+
+        Si no hay suficientes muestras, fuerza una llamada a get_time()
+        para inicializar el estimador.
+        """
+        if not self._time_sync.is_ready():
+            data = self.get_time()
+            try:
+                server_time_ms = int(data.get("serverTime"))
+            except (TypeError, ValueError):
+                server_time_ms = None
+
+            if server_time_ms is not None:
+                # Devolvemos directamente el último serverTime como fallback
+                return server_time_ms
+
+        return self._time_sync.to_server_ms()
 
 
 # ==========================
