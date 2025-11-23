@@ -1,81 +1,218 @@
+# panzer/errors.py
+"""
+Errores y manejo de respuestas para Panzer.
+
+Se centra en:
+- Interpretar correctamente las respuestas de la API de Binance.
+- Unificar el punto donde se levantan excepciones.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple, Union
+
+import json
+
 import requests
-from socket import gethostname
-from requests.exceptions import HTTPError, ConnectionError, Timeout
 
-from panzer.logs import LogManager
+from panzer.log_manager import LogManager
+
+# ==========================
+# Logger específico del módulo
+# ==========================
+
+_log = LogManager(name="panzer.errors",
+                  folder="logs",
+                  filename="errors.log",
+                  level="INFO",
+                  )
 
 
-exceptions_logger = LogManager(filename='logs/exceptions.log', name='exceptions', info_level='DEBUG')
-hostname = gethostname() + ' exceptions '
+# ==========================
+# Modelos de error
+# ==========================
+
+
+@dataclass
+class BinanceAPIErrorPayload:
+    """
+    Representa la carga útil de error típica de la API de Binance.
+
+    Ejemplo de cuerpo:
+        {
+            "code": -1121,
+            "msg": "Invalid symbol."
+        }
+    """
+
+    code: Optional[int]
+    msg: Optional[str]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "BinanceAPIErrorPayload":
+        code = data.get("code")
+        msg = data.get("msg")
+
+        try:
+            code_int: Optional[int] = int(code) if code is not None else None
+        except (TypeError, ValueError):
+            code_int = None
+
+        if msg is not None:
+            msg_str = str(msg)
+        else:
+            msg_str = None
+
+        return cls(code=code_int, msg=msg_str)
 
 
 class BinanceAPIException(Exception):
     """
-    Excepción personalizada para manejar errores específicos de la API de Binance y otras excepciones.
+    Excepción base para errores devueltos por la API de Binance.
+
+    Incluye:
+    - status_code HTTP.
+    - error_payload: código/mensaje de Binance (si se ha podido parsear).
+    - url: URL de la petición.
+    - method: GET/POST/DELETE...
+    - body: contenido de la respuesta (texto bruto), útil para debugging.
     """
 
-    def __init__(self, message: str, code=None, status_code=None):
-        self.code = code
+    def __init__(
+            self,
+            status_code: int,
+            method: str,
+            url: str,
+            error_payload: Optional[BinanceAPIErrorPayload] = None,
+            body: Optional[str] = None,
+    ) -> None:
         self.status_code = status_code
-        self.message = message
-        self.msg = f"BinanceAPIException {hostname}: {self.message} (Código: {self.code}, Status: {self.status_code})"
-        exceptions_logger.error(self.msg)
-        super().__init__(self.msg)
+        self.method = method
+        self.url = url
+        self.error_payload = error_payload
+        self.body = body
 
-    def __str__(self):
-        return f"BinanceAPIException(code={self.code}, status_code={self.status_code}): {self.message}"
+        base_msg = f"[{status_code}] {method} {url}"
+
+        if error_payload is not None:
+            detail = f" (code={error_payload.code}, msg={error_payload.msg})"
+        else:
+            detail = ""
+
+        super().__init__(base_msg + detail)
 
 
-class BinanceRequestHandler:
+# ==========================
+# Helpers internos
+# ==========================
+
+
+def _extract_json_safe(response: requests.Response) -> Tuple[Optional[Union[Dict[str, Any], Any]], Optional[str]]:
     """
-    Clase centralizada para manejar excepciones de la API de Binance y otras posibles excepciones de red.
-    Esta clase maneja automáticamente los errores devolviendo los códigos de error y mensajes dinámicamente.
+    Intenta parsear JSON de la respuesta. Si falla, devuelve (None, texto).
+
+    :return: (json_data, raw_text)
     """
-
-    @staticmethod
-    def handle_exception(response=None, exception=None):
-        """
-        Método estático que maneja las excepciones. Recibe una respuesta HTTP o una excepción directa.
-
-        :param response: Objeto de respuesta HTTP de la API.
-        :param exception: Excepción de requests u otros errores del sistema.
-        """
-        # Si hay una excepción de requests, manejarla
-        if exception:
-            if isinstance(exception, ConnectionError):
-                raise BinanceAPIException("Error de conexión con el servidor", status_code=503)
-            elif isinstance(exception, Timeout):
-                raise BinanceAPIException("Tiempo de espera agotado para la respuesta", status_code=504)
-            elif isinstance(exception, HTTPError):
-                raise BinanceAPIException("Error HTTP recibido", status_code=exception.response.status_code)
-            else:
-                raise BinanceAPIException(f"Error desconocido: {str(exception)}", status_code=500)
-
-        # Si hay una respuesta HTTP pero no es 200 OK
-        if response is not None:
-            if response.status_code != 200:
-                try:
-                    json_res = response.json()
-                    code = json_res.get('code', None)
-                    message = json_res.get('msg', 'Error no especificado')
-
-                    # Registro del error y mensaje dinámico según la respuesta
-                    raise BinanceAPIException(message, code=code, status_code=response.status_code)
-
-                except ValueError:
-                    # Si no es un JSON válido
-                    raise BinanceAPIException(f"Respuesta inválida: {response.text}", status_code=response.status_code)
-
-
-if __name__ == '__main__':
-
     try:
-        response = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDTX')
-        BinanceRequestHandler.handle_exception(response=response)  # Maneja errores si existen
+        data = response.json()
+        return data, None
+    except ValueError:
+        # No es JSON válido; devolvemos el texto bruto
+        return None, response.text
 
-    except BinanceAPIException as e:
-        print(e)
 
-    except Exception as e:
-        exceptions_logger.error(f"Error inesperado {hostname}: {str(e)}")
-        print(f"Ocurrió un error inesperado: {str(e)}")
+def _build_exception(response: requests.Response) -> BinanceAPIException:
+    """
+    Construye una BinanceAPIException a partir de un objeto Response.
+
+    Maneja tanto errores HTTP (4xx/5xx) como cuerpos con la forma:
+        {"code": <int>, "msg": <str>}
+    aunque vengan con status_code 200.
+    """
+    method = response.request.method if response.request is not None else "GET"
+    url = response.url or "UNKNOWN"
+
+    json_data, raw_text = _extract_json_safe(response)
+
+    error_payload: Optional[BinanceAPIErrorPayload] = None
+
+    if isinstance(json_data, dict):
+        # Intentamos interpretar el payload como error típico de Binance
+        if "code" in json_data or "msg" in json_data:
+            error_payload = BinanceAPIErrorPayload.from_dict(json_data)
+
+    exc = BinanceAPIException(
+        status_code=response.status_code,
+        method=method,
+        url=url,
+        error_payload=error_payload,
+        body=raw_text if raw_text is not None else (json.dumps(json_data, ensure_ascii=False) if json_data is not None else None),
+    )
+
+    _log.error(
+        "BinanceAPIException raised: status=%s method=%s url=%s code=%s msg=%s",
+        exc.status_code,
+        exc.method,
+        exc.url,
+        exc.error_payload.code if exc.error_payload else None,
+        exc.error_payload.msg if exc.error_payload else None,
+    )
+
+    return exc
+
+
+# ==========================
+# API pública para manejo de respuestas
+# ==========================
+
+
+def handle_response(response: requests.Response) -> Any:
+    """
+    Valida una respuesta de la API de Binance.
+
+    Comportamiento:
+    - Si status_code no está en 2xx -> se levanta BinanceAPIException.
+    - Si status_code es 2xx:
+        - Se intenta parsear JSON.
+        - Si el JSON es un dict con "code" < 0 (errores típicos de Binance),
+          se levanta BinanceAPIException.
+        - En caso contrario, se devuelve el JSON (o texto si no es JSON).
+
+    :param response: Objeto requests.Response devuelto por requests.
+    :return: JSON parseado (dict o list) o texto si no es JSON.
+    :raises BinanceAPIException: ante cualquier error interpretado.
+    """
+    status = response.status_code
+    method = response.request.method if response.request is not None else "GET"
+    url = response.url or "UNKNOWN"
+
+    _log.debug("handle_response: %s %s -> %s", method, url, status)
+
+    # 1) Errores HTTP directos
+    if not (200 <= status < 300):
+        raise _build_exception(response)
+
+    # 2) Intentamos parsear JSON
+    json_data, raw_text = _extract_json_safe(response)
+
+    if isinstance(json_data, dict):
+        # Binance a veces devuelve errores con 200 pero code < 0
+        if "code" in json_data:
+            try:
+                code_int = int(json_data["code"])
+            except (TypeError, ValueError):
+                code_int = None
+
+            if code_int is not None and code_int < 0:
+                # Es un error lógico de Binance aunque el HTTP sea 200
+                raise _build_exception(response)
+
+        return json_data
+
+    if json_data is not None:
+        # JSON válido pero no dict (p.ej. lista)
+        return json_data
+
+    # No hay JSON; devolvemos el texto bruto
+    return raw_text

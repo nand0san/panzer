@@ -15,7 +15,7 @@ with open(readme_path, encoding='utf-8') as f:
 
 setup(
     name='panzer',
-    version='1.0.11',
+    version='2.0.0',
     author='nand0san',
     author_email='',
     description='REST API manager for Binance API. Manages weights and credentials simply and securely.',
