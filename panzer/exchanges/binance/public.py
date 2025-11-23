@@ -10,15 +10,22 @@ Características:
     - "cm"    -> https://dapi.binance.com (COIN-M futures)
 - Carga dinámicamente los límites REQUEST_WEIGHT desde /exchangeInfo.
 - Usa BinanceFixedWindowLimiter para evitar baneos por exceso de peso.
+- Integra un estimador de desfase de reloj (TimeOffsetEstimator).
 - Delegación HTTP en binance_public_get (capa de bajo nivel).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import time as _time
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Any, Dict, Literal, Optional
 
+from panzer.http import binance_public_get
+from panzer.http.client import (
+    BINANCE_SPOT_BASE_URL,
+    BINANCE_FUTURES_UM_BASE_URL,
+    BINANCE_FUTURES_CM_BASE_URL,
+)
 from panzer.log_manager import LogManager
 from panzer.exchanges.binance.config import (
     get_spot_rate_limits,
@@ -27,333 +34,527 @@ from panzer.exchanges.binance.config import (
     ExchangeRateLimits,
 )
 from panzer.rate_limit.binance_fixed import BinanceFixedWindowLimiter
-from panzer.http.client import (
-    binance_public_get,
-    BINANCE_SPOT_BASE_URL,
-    BINANCE_FUTURES_UM_BASE_URL,
-    BINANCE_FUTURES_CM_BASE_URL,
-)
 from panzer.time_sync import TimeOffsetEstimator
 
 MarketType = Literal["spot", "um", "cm"]
 
 
 # ==========================
-# Configuración por mercado
+# Logger del módulo
 # ==========================
 
-
-@dataclass
-class _MarketConfig:
-    market: MarketType
-    base_url: str
-    time_endpoint: str
-    exchange_info_endpoint: str
-    klines_endpoint: str
+_log = LogManager(
+    name="panzer.binance.public",
+    folder="logs",
+    filename="binance_public.log",
+    level="INFO",
+)
 
 
-_MARKETS: Dict[MarketType, _MarketConfig] = {
-    "spot": _MarketConfig(
-        market="spot",
-        base_url=BINANCE_SPOT_BASE_URL,
-        time_endpoint="/api/v3/time",
-        exchange_info_endpoint="/api/v3/exchangeInfo",
-        klines_endpoint="/api/v3/klines",
-    ),
-    "um": _MarketConfig(
-        market="um",
-        base_url=BINANCE_FUTURES_UM_BASE_URL,
-        time_endpoint="/fapi/v1/time",
-        exchange_info_endpoint="/fapi/v1/exchangeInfo",
-        klines_endpoint="/fapi/v1/klines",
-    ),
-    "cm": _MarketConfig(
-        market="cm",
-        base_url=BINANCE_FUTURES_CM_BASE_URL,
-        time_endpoint="/dapi/v1/time",
-        exchange_info_endpoint="/dapi/v1/exchangeInfo",
-        klines_endpoint="/dapi/v1/klines",
-    ),
+# ==========================
+# Endpoints por mercado
+# ==========================
+
+_ENDPOINTS: dict[str, dict[str, str]] = {
+    "spot": {
+        "ping": "/api/v3/ping",
+        "time": "/api/v3/time",
+        "exchange_info": "/api/v3/exchangeInfo",
+        "trades": "/api/v3/trades",
+        "agg_trades": "/api/v3/aggTrades",
+        "klines": "/api/v3/klines",
+        "depth": "/api/v3/depth",
+    },
+    "um": {
+        "ping": "/fapi/v1/ping",
+        "time": "/fapi/v1/time",
+        "exchange_info": "/fapi/v1/exchangeInfo",
+        "trades": "/fapi/v1/trades",
+        "agg_trades": "/fapi/v1/aggTrades",
+        "klines": "/fapi/v1/klines",
+        "depth": "/fapi/v1/depth",
+    },
+    "cm": {
+        "ping": "/dapi/v1/ping",
+        "time": "/dapi/v1/time",
+        "exchange_info": "/dapi/v1/exchangeInfo",
+        "trades": "/dapi/v1/trades",
+        "agg_trades": "/dapi/v1/aggTrades",
+        "klines": "/dapi/v1/klines",
+        "depth": "/dapi/v1/depth",
+    },
 }
 
 
-def _load_limits_for_market(market: MarketType) -> ExchangeRateLimits:
-    """
-    Carga los límites REQUEST_WEIGHT adecuados al mercado elegido.
-    """
-    if market == "spot":
-        return get_spot_rate_limits()
-    if market == "um":
-        return get_futures_um_rate_limits()
-    if market == "cm":
-        return get_futures_cm_rate_limits()
-    raise ValueError(f"Mercado no soportado: {market}, use one of: 'spot', 'um', 'cm'")
-
-
 # ==========================
-# Cliente público
+# Cliente público de alto nivel
 # ==========================
 
-
+@dataclass
 class BinancePublicClient:
     """
     Cliente público de alto nivel para Binance.
 
-    Uso típico:
-
-        client = BinancePublicClient(market="spot")
-        server_time = client.get_time()
-        info = client.get_exchange_info()
-        kl = client.get_klines("BTCUSDT", "1m", limit=1000)
+    Aglutina:
+    - Selección de mercado (spot / um / cm).
+    - Rate limiter (BinanceFixedWindowLimiter) construido desde los límites
+      dinámicos de /exchangeInfo.
+    - Estimación del desfase de reloj mediante TimeOffsetEstimator.
     """
+    market: MarketType = "spot"
+    safety_ratio: float = 0.9
+    _limits: ExchangeRateLimits | None = field(default=None, init=False, repr=False)
+    _limiter: BinanceFixedWindowLimiter | None = field(default=None, init=False, repr=False)
+    _time_offset: TimeOffsetEstimator = field(default_factory=TimeOffsetEstimator, init=False, repr=False)
 
-    def __init__(
+    def __post_init__(self) -> None:
+        self._log = LogManager(
+            name=f"panzer.binance.public.{self.market}",
+            folder="logs",
+            filename=f"binance_public_{self.market}.log",
+            level="INFO",
+        )
+        self._log.info("Inicializando BinancePublicClient(market=%s)", self.market)
+
+        self._limits = self._load_limits()
+        self._limiter = BinanceFixedWindowLimiter.from_exchange_limits(
+            self._limits,
+            safety_ratio=self.safety_ratio,
+        )
+        self._log.info(
+            "Rate limiter inicializado: max_per_minute=%s safety_ratio=%.2f",
+            self._limits.request_weight.limit if self._limits.request_weight else "N/A",
+            self.safety_ratio,
+        )
+
+    # ==========================
+    # Helpers internos
+    # ==========================
+
+    @property
+    def base_url(self) -> str:
+        if self.market == "spot":
+            return BINANCE_SPOT_BASE_URL
+        if self.market == "um":
+            return BINANCE_FUTURES_UM_BASE_URL
+        if self.market == "cm":
+            return BINANCE_FUTURES_CM_BASE_URL
+        raise ValueError(f"Mercado no soportado: {self.market!r}")
+
+    def _load_limits(self) -> ExchangeRateLimits:
+        if self.market == "spot":
+            return get_spot_rate_limits()
+        if self.market == "um":
+            return get_futures_um_rate_limits()
+        if self.market == "cm":
+            return get_futures_cm_rate_limits()
+        raise ValueError(f"Mercado no soportado: {self.market!r}")
+
+    @property
+    def limiter(self) -> BinanceFixedWindowLimiter:
+        """
+        Acceso sólo-lectura al limiter interno.
+
+        Útil para inspeccionar métricas (used_local, last_server_used).
+        """
+        assert self._limiter is not None, "Limiter no inicializado"
+        return self._limiter
+
+    @property
+    def time_offset(self) -> TimeOffsetEstimator:
+        """
+        Acceso al estimador de desfase de reloj.
+        """
+        return self._time_offset
+
+    def _maybe_update_time_offset_from_response(
         self,
-        market: MarketType = "spot",
-        safety_ratio: float = 0.9,
+        endpoint: str,
+        data: Any,
     ) -> None:
         """
-        :param market:
-            Mercado objetivo:
-                - "spot":   Binance Spot (api.binance.com)
-                - "um":     USDT-M futures (fapi.binance.com)
-                - "cm":     COIN-M futures (dapi.binance.com)
-        :param safety_ratio:
-            Factor de seguridad para el rate limiter en (0, 1].
+        Si la respuesta corresponde a un /time que devuelve serverTime en ms,
+        actualiza el estimador de offset.
         """
-        if market not in _MARKETS:
-            raise ValueError(
-                f"Mercado no soportado: {market}, use one of: 'spot', 'um', 'cm'"
-            )
+        normalized = endpoint.rstrip("/").lower()
+        if not normalized.endswith("/time"):
+            return
 
-        self.market: MarketType = market
-        self.config: _MarketConfig = _MARKETS[market]
+        if not isinstance(data, dict):
+            return
 
-        # Logger específico del cliente (usa firma real de LogManager)
-        self._log = LogManager(
-            filename=f"binance_{market}.log",
-            name=f"panzer.binance.{market}",
-            folder="logs",
-            info_level="INFO",
-        )
+        server_ms = data.get("serverTime")
+        if not isinstance(server_ms, int):
+            return
 
-        # Carga dinámica de límites desde /exchangeInfo
-        limits = _load_limits_for_market(market)
-        self._log.info(f"Market={market} REQUEST_WEIGHT limit: {limits.request_weight}")
-
-        # Rate limiter ajustado al límite del mercado
-        self._limiter = BinanceFixedWindowLimiter.from_exchange_limits(
-            limits,
-            safety_ratio=safety_ratio,
-            logger=LogManager(
-                filename="binance_rate_limit.log",
-                name="panzer.binance_rate_limit",
-                folder="logs",
-                info_level="WARNING",
-            ).logger,
-        )
-
-        # Estimador de desfase de reloj
-        self._time_sync = TimeOffsetEstimator()
-
-        self._log.info(
-            f"BinancePublicClient inicializado para market={market}, "
-            f"base_url={self.config.base_url}, safety_ratio={safety_ratio}"
+        local_now = _time()
+        offset = self._time_offset.add_sample(server_ms, local_now=local_now)
+        self._log.debug(
+            "Actualizado offset de tiempo: server_ms=%s local_now=%.6f offset=%.6f",
+            server_ms,
+            local_now,
+            offset,
         )
 
     # ==========================
-    # Métodos auxiliares internos
+    # Helpers de endpoints
     # ==========================
 
-    def _get(
+    def _endpoint(self, name: str) -> str:
+        """
+        Resuelve el path del endpoint en función del mercado.
+
+        :param name: Nombre lógico del endpoint (ping, time, klines, etc.).
+        :return: Path a usar en la petición (ej. "/api/v3/klines").
+        :raises KeyError: Si el endpoint no está definido para el mercado.
+        """
+        try:
+            return _ENDPOINTS[self.market][name]
+        except KeyError as exc:
+            raise KeyError(f"Endpoint '{name}' no definido para market={self.market!r}") from exc
+
+    # ==========================
+    # API genérica
+    # ==========================
+
+    def get(
         self,
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
+        *,
         weight: int = 1,
         timeout: int = 10,
-    ) -> Tuple[Any, Dict[str, str]]:
+    ) -> Any:
         """
-        Helper interno para hacer GETs públicos con rate limiting.
+        Lanza un GET público contra Binance con rate limiting y manejo de errores.
 
-        Devuelve (data, headers) y sincroniza el limiter con los headers.
+        :param endpoint: Path de la API (ej: "/api/v3/time", "/fapi/v1/depth").
+        :param params: Parámetros de query (o None).
+        :param weight: REQUEST_WEIGHT estimado de la operación.
+        :param timeout: Timeout en segundos para la petición HTTP.
+        :return: JSON parseado o texto, según `handle_response`.
         """
-        self._log.debug(
-            f"GET {self.config.base_url}{endpoint} "
-            f"params={params} weight={weight} used_local={self._limiter.used_local}"
-        )
+
+        if self._time_offset.is_ready():
+            now_server_sec = self._time_offset.to_server_ms() / 1000.0
+            self.limiter.acquire(weight=weight, now=now_server_sec)
+        else:
+            self.limiter.acquire(weight=weight)
 
         data, headers = binance_public_get(
-            base_url=self.config.base_url,
+            base_url=self.base_url,
             endpoint=endpoint,
             params=params,
-            limiter=self._limiter,
+            limiter=self.limiter,
             weight=weight,
             timeout=timeout,
         )
 
-        # Sincronizar limiter con el contador real del servidor
-        self._limiter.update_from_headers(headers)
+        # Sincronizar offset de reloj si procede
+        self._maybe_update_time_offset_from_response(endpoint, data)
 
+        # Logging ligero
         self._log.debug(
-            f"RESP {self.config.base_url}{endpoint} "
-            f"used_local={self._limiter.used_local} "
-            f"server_used={self._limiter.last_server_used} "
-            f"hdr_used_1m={headers.get('x-mbx-used-weight-1m')}"
+            "GET %s params=%r weight=%s -> used_local=%s server_used=%s",
+            endpoint,
+            params,
+            weight,
+            self.limiter.used_local,
+            self.limiter.last_server_used,
         )
-
-        return data, headers
-
-    # ==========================
-    # Métodos públicos
-    # ==========================
-
-    def get_time(self, timeout: int = 5) -> Dict[str, Any]:
-        """
-        Devuelve el objeto JSON de `<time_endpoint>` del mercado actual
-        y actualiza el estimador de offset de reloj interno.
-
-        :param timeout: Timeout de la petición HTTP en segundos.
-        :return: Dict con la respuesta JSON de Binance.
-        """
-        data, headers = self._get(
-            endpoint=self.config.time_endpoint,
-            params=None,
-            weight=1,
-            timeout=timeout,
-        )
-
-        # Actualizar estimador de offset si viene serverTime
-        server_time_ms_raw = data.get("serverTime")
-        try:
-            server_time_ms = int(server_time_ms_raw)
-        except (TypeError, ValueError):
-            server_time_ms = None
-
-        if server_time_ms is not None:
-            offset = self._time_sync.add_sample(
-                server_time_ms=server_time_ms,
-                local_now=_time(),
-            )
-            self._log.debug(
-                f"time_sync: server_time_ms={server_time_ms} "
-                f"offset_sec={offset:.3f}"
-            )
 
         return data
 
-    def get_exchange_info(self, timeout: int = 10) -> Dict[str, Any]:
-        """
-        Devuelve la información de exchange completa para el mercado actual.
+    # ==========================
+    # Wrappers básicos: salud / tiempo
+    # ==========================
 
-        Para Spot incluye símbolos, filtros, rateLimits, etc.
-        Para Futuros incluye símbolos y metadatos específicos del mercado.
+    def ping(self, *, timeout: int = 5) -> Any:
         """
-        # Este endpoint es pesado; con peso 10 nos mantenemos conservadores.
-        data, _ = self._get(
-            endpoint=self.config.exchange_info_endpoint,
-            params=None,
-            weight=10,
-            timeout=timeout,
-        )
+        Realiza un /ping en el mercado actual.
+
+        :param timeout: Timeout en segundos para la llamada HTTP.
+        :return: Respuesta JSON o cuerpo vacío según Binance.
+        """
+        endpoint = self._endpoint("ping")
+        return self.get(endpoint=endpoint, params=None, weight=1, timeout=timeout)
+
+    def server_time(self, *, weight: int = 1, timeout: int = 5) -> Dict[str, Any]:
+        """
+        Obtiene la hora del servidor para el mercado actual y actualiza el offset interno.
+
+        :param weight: Peso estimado de la operación para el limiter.
+        :param timeout: Timeout en segundos para la llamada HTTP.
+        :return: Diccionario con al menos la clave 'serverTime' en milisegundos.
+        :raises RuntimeError: Si la respuesta no es un dict con serverTime.
+        """
+        endpoint = self._endpoint("time")
+        data = self.get(endpoint=endpoint, params=None, weight=weight, timeout=timeout)
+
+        if not isinstance(data, dict) or "serverTime" not in data:
+            raise RuntimeError(f"Respuesta inesperada de /time: {data!r}")
+
+        return data
+
+    def ensure_time_offset_ready(
+        self,
+        *,
+        min_samples: int = 3,
+        weight: int = 1,
+        timeout: int = 5,
+    ) -> None:
+        """
+        Asegura disponer de suficientes muestras recientes de /time.
+
+        Si el estimador no está "ready", realiza llamadas a server_time()
+        hasta alcanzar al menos min_samples intentos o hasta que is_ready()
+        devuelva True.
+
+        :param min_samples: Número mínimo de iteraciones de sincronización.
+        :param weight: Peso estimado de cada llamada a /time.
+        :param timeout: Timeout por llamada a /time.
+        """
+        attempts = 0
+        target_attempts = max(min_samples, 1)
+
+        while not self._time_offset.is_ready() and attempts < target_attempts:
+            self.server_time(weight=weight, timeout=timeout)
+            attempts += 1
+
+    def now_server_ms(self) -> int:
+        """
+        Devuelve la estimación actual de 'ahora' en tiempo de servidor (ms).
+
+        Usa internamente el estimador de offset de tiempo.
+        """
+        return self._time_offset.to_server_ms()
+
+    def acquire(self, weight: int = 1, now: float | None = None) -> None:
+        if now is None:
+            from time import time as _time
+            now = _time()
+
+        bucket_id = int(now // 60)
+
+        if bucket_id != self._bucket_id:
+            self._reset(bucket_id)
+
+        projected = self._used_local + weight
+        if projected > self._effective_limit:
+            next_window_start = (self._bucket_id + 1) * 60
+            sleep_for = max(0.0, next_window_start - now)
+            self._logger.warning(
+                "Límite de seguridad alcanzado (used_local=%s, weight=%s, effective_limit=%s). "
+                "Durmiendo %.2f segundos.",
+                self._used_local,
+                weight,
+                self._effective_limit,
+                sleep_for,
+            )
+            from time import sleep as _sleep
+            _sleep(sleep_for)
+            # Recalcula bucket tras dormir
+            from time import time as _time2
+            now2 = _time2() if now is None else now + sleep_for
+            new_bucket_id = int(now2 // 60)
+            self._reset(new_bucket_id)
+
+        self._used_local += weight
+
+    # ==========================
+    # Wrappers de metadatos
+    # ==========================
+
+    def exchange_info(
+        self,
+        symbol: str | None = None,
+        *,
+        timeout: int = 10,
+        weight: int = 1,
+    ) -> dict:
+        """
+        Envuelve el endpoint /exchangeInfo del mercado actual.
+
+        :param symbol: Símbolo opcional (ej.: "BTCUSDT"). Si es None, devuelve toda la info.
+        :param timeout: Timeout en segundos para la llamada HTTP.
+        :param weight: Peso estimado de la operación para el limiter.
+        :return: Diccionario con la información del exchange.
+        """
+        endpoint = self._endpoint("exchange_info")
+        params: dict[str, object] | None = None
+
+        if symbol is not None:
+            params = {"symbol": symbol.upper()}
+
+        data = self.get(endpoint=endpoint, params=params, weight=weight, timeout=timeout)
+
         if not isinstance(data, dict):
-            raise TypeError(f"Respuesta inesperada para exchangeInfo: {type(data)}")
+            raise RuntimeError(f"Respuesta inesperada de /exchangeInfo: {data!r}")
+
         return data
 
-    def get_klines(
+    # ==========================
+    # Wrappers de trades
+    # ==========================
+
+    def trades(
+        self,
+        symbol: str,
+        *,
+        limit: int = 500,
+        timeout: int = 10,
+        weight: int = 1,
+    ) -> list[dict]:
+        """
+        Obtiene la lista de trades recientes del símbolo.
+
+        :param symbol: Par de trading (ej.: "BTCUSDT").
+        :param limit: Número de trades a devolver (máx. según Binance).
+        :param timeout: Timeout en segundos.
+        :param weight: Peso estimado de la operación.
+        :return: Lista de trades en formato dict.
+        """
+        endpoint = self._endpoint("trades")
+        params = {
+            "symbol": symbol.upper(),
+            "limit": limit,
+        }
+        data = self.get(endpoint=endpoint, params=params, weight=weight, timeout=timeout)
+
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de /trades: {data!r}")
+
+        return data  # type: ignore[return-value]
+
+    def agg_trades(
+        self,
+        symbol: str,
+        *,
+        from_id: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 500,
+        timeout: int = 10,
+        weight: int = 1,
+    ) -> list[dict]:
+        """
+        Obtiene trades agregados (aggTrades) para un símbolo.
+
+        Parámetros opcionales según la API oficial:
+        - fromId: ID desde el que empezar.
+        - startTime / endTime: ventana temporal en ms.
+        - limit: número máximo de registros.
+
+        :param symbol: Par de trading (ej.: "BTCUSDT").
+        :param from_id: ID inicial opcional.
+        :param start_time: Marca de tiempo inicial (ms).
+        :param end_time: Marca de tiempo final (ms).
+        :param limit: Máximo de registros a devolver.
+        :param timeout: Timeout en segundos.
+        :param weight: Peso estimado de la operación.
+        :return: Lista de aggTrades.
+        """
+        endpoint = self._endpoint("agg_trades")
+        params: dict[str, object] = {
+            "symbol": symbol.upper(),
+            "limit": limit,
+        }
+        if from_id is not None:
+            params["fromId"] = from_id
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        data = self.get(endpoint=endpoint, params=params, weight=weight, timeout=timeout)
+
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de /aggTrades: {data!r}")
+
+        return data  # type: ignore[return-value]
+
+    # ==========================
+    # Wrapper de profundidad (order book)
+    # ==========================
+
+    def depth(
+        self,
+        symbol: str,
+        *,
+        limit: int = 100,
+        timeout: int = 10,
+        weight: int = 1,
+    ) -> dict:
+        """
+        Obtiene la profundidad de libro (order book) para un símbolo.
+
+        :param symbol: Par de trading (ej.: "BTCUSDT").
+        :param limit: Profundidad de niveles (ej.: 5, 10, 20, 50, 100, 500, 1000).
+        :param timeout: Timeout en segundos.
+        :param weight: Peso estimado de la operación.
+        :return: Diccionario con bids/asks, lastUpdateId, etc.
+        """
+        endpoint = self._endpoint("depth")
+        params = {
+            "symbol": symbol.upper(),
+            "limit": limit,
+        }
+        data = self.get(endpoint=endpoint, params=params, weight=weight, timeout=timeout)
+
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de /depth: {data!r}")
+
+        return data
+
+    # ==========================
+    # Wrapper de klines (velas)
+    # ==========================
+
+    def klines(
         self,
         symbol: str,
         interval: str,
+        *,
+        start_time: int | None = None,
+        end_time: int | None = None,
         limit: int = 500,
-        start_time: Optional[int] = None,
-        end_time: Optional[int] = None,
         timeout: int = 10,
-    ) -> list[list[Any]]:
+        weight: int = 1,
+    ) -> list[list[object]]:
         """
-        Recupera velas (klines) para un símbolo e intervalo.
+        Obtiene velas (klines) para un símbolo e intervalo.
 
-        :param symbol:
-            Par de trading en formato de Binance (ej: "BTCUSDT").
-        :param interval:
-            Intervalo de vela (ej: "1m", "5m", "1h", "1d").
-        :param limit:
-            Número máximo de velas a devolver (1..1000 típicamente).
-        :param start_time:
-            Epoch en ms de inicio (opcional).
-        :param end_time:
-            Epoch en ms de fin (opcional).
-        :param timeout:
-            Timeout en segundos.
-        :return:
-            Lista de velas, cada una es una lista con el formato estándar
-            de klines de Binance.
+        Esta es la llamada "básica" a /klines. Para rangos largos con
+        múltiples ventanas (más allá del limit típico de 1000) construiremos
+        helpers adicionales en otro paso para que Panzer orqueste varias
+        llamadas de forma segura.
+
+        :param symbol: Par de trading (ej.: "BTCUSDT").
+        :param interval: Intervalo de vela (ej.: "1m", "5m", "1h", "1d").
+        :param start_time: Marca de arranque en ms (opcional).
+        :param end_time: Marca de fin en ms (opcional).
+        :param limit: Máximo de velas por petición.
+        :param timeout: Timeout en segundos.
+        :param weight: Peso estimado de la operación.
+        :return: Lista de velas en el formato estándar de Binance.
         """
-        params: Dict[str, Any] = {
-            "symbol": symbol,
+        endpoint = self._endpoint("klines")
+        params: dict[str, object] = {
+            "symbol": symbol.upper(),
             "interval": interval,
             "limit": limit,
         }
         if start_time is not None:
-            params["startTime"] = int(start_time)
+            params["startTime"] = start_time
         if end_time is not None:
-            params["endTime"] = int(end_time)
+            params["endTime"] = end_time
 
-        # Peso típico de klines suele ser bajo; usamos 1 por defecto.
-        data, _ = self._get(
-            endpoint=self.config.klines_endpoint,
-            params=params,
-            weight=1,
-            timeout=timeout,
-        )
+        data = self.get(endpoint=endpoint, params=params, weight=weight, timeout=timeout)
 
-        # La API devuelve una lista de listas
         if not isinstance(data, list):
-            raise TypeError(f"Respuesta inesperada para klines: {type(data)}")
+            raise RuntimeError(f"Respuesta inesperada de /klines: {data!r}")
 
-        self._log.debug(
-            f"klines: symbol={symbol}, interval={interval}, "
-            f"limit={limit}, received={len(data)}"
-        )
-
-        return data
-
-    @property
-    def time_offset_seconds(self) -> float:
-        """
-        Offset estimado actual (segundos) entre el reloj local y Binance.
-
-        Valor positivo -> el reloj de Binance va por delante del local.
-        Valor negativo -> el reloj de Binance va por detrás del local.
-        """
-        return self._time_sync.current_offset()
-
-    @property
-    def time_offset_ready(self) -> bool:
-        """
-        Indica si el estimador tiene suficientes muestras recientes como
-        para considerarse fiable.
-        """
-        return self._time_sync.is_ready()
-
-    def now_server_ms(self) -> int:
-        """
-        Devuelve un 'ahora' en milisegundos según el reloj de Binance,
-        usando el offset estimado.
-
-        Si no hay suficientes muestras, fuerza una llamada a get_time()
-        para inicializar el estimador.
-        """
-        if not self._time_sync.is_ready():
-            data = self.get_time()
-            try:
-                server_time_ms = int(data.get("serverTime"))
-            except (TypeError, ValueError):
-                server_time_ms = None
-
-            if server_time_ms is not None:
-                # Devolvemos directamente el último serverTime como fallback
-                return server_time_ms
-
-        return self._time_sync.to_server_ms()
+        return data  # type: ignore[return-value]
 
 
 # ==========================
@@ -361,27 +562,19 @@ class BinancePublicClient:
 # ==========================
 
 if __name__ == "__main__":
-    """
-    Pruebas rápidas del BinancePublicClient:
+    client = BinancePublicClient(market="um", safety_ratio=0.8)
 
-    1) Crear cliente SPOT.
-    2) Obtener serverTime.
-    3) Obtener exchangeInfo (tamaño de symbols).
-    4) Obtener algunas velas 1m de BTCUSDT.
-    """
+    # Aseguramos offset de tiempo aceptable
+    client.ensure_time_offset_ready(min_samples=5)
 
-    client = BinancePublicClient(market="spot", safety_ratio=0.9)
+    # Velas 1m de BTCUSDT
+    klines_data = client.klines("BTCUSDT", "1m", limit=1000)
+    print("Primeras 5 velas:", klines_data[:5])
 
-    print("== get_time() ==")
-    server_time = client.get_time()
-    print(f"serverTime={server_time}")
+    # Trades recientes
+    trades_data = client.trades("BTCUSDT", limit=1000)
+    print("Primeros 5 trades:", trades_data[:5])
 
-    print("\n== get_exchange_info() ==")
-    exch = client.get_exchange_info()
-    print(f"symbols count={len(exch.get('symbols', []))}")
-
-    print("\n== get_klines('BTCUSDT','1m', limit=5) ==")
-    kl = client.get_klines("BTCUSDT", "1m", limit=5)
-    print(f"received klines={len(kl)}")
-    for row in kl:
-        print(row)
+    # Profundidad
+    orderbook = client.depth("BTCUSDT", limit=500)
+    print("Order book (resumen): lastUpdateId =", orderbook.get("lastUpdateId"))

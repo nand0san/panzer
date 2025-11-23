@@ -15,12 +15,11 @@ Características:
 Este módulo no depende de ningún endpoint concreto; sólo de los límites
 ya parseados en ExchangeRateLimits.
 """
-# panzer/rate_limit/binance_fixed.py
 
 from __future__ import annotations
 
-import time
 import threading
+import time
 from typing import Mapping, Optional
 
 from panzer.log_manager import LogManager
@@ -46,6 +45,7 @@ class BinanceFixedWindowLimiter:
     - Alinear el control local con el contador real de Binance.
     - Ajustar dinámicamente el límite global vía /exchangeInfo.
     """
+
     def __init__(
         self,
         max_per_minute: int,
@@ -83,23 +83,12 @@ class BinanceFixedWindowLimiter:
         # Logger propio del rate limiter
         self._logger = LogManager(
             name="panzer.binance_rate_limit",
-            folder="logs",  # <-- raíz del repo
-            filename="binance_rate_limit.log",
-            level="INFO",
-        )
-
-        self._bucket_id: Optional[int] = None
-        self._used_local: int = 0
-        self._last_server_used: Optional[int] = None
-
-        self._logger = LogManager(
-            name="panzer.binance_rate_limit",
             folder="logs",
             filename="binance_rate_limit.log",
             level="INFO",
         )
 
-        # Nuevo: lock para uso concurrente seguro
+        # Lock para uso concurrente seguro
         self._lock = threading.Lock()
 
     # ==========================
@@ -128,7 +117,6 @@ class BinanceFixedWindowLimiter:
         """
         bucket = self._current_bucket(now)
         if self._bucket_id is None or bucket != self._bucket_id:
-            # Cambio de ventana
             self._logger.debug(
                 "Cambio de ventana: bucket %s -> %s, reseteando contador local",
                 self._bucket_id,
@@ -146,8 +134,6 @@ class BinanceFixedWindowLimiter:
     def used_local(self) -> int:
         """
         Devuelve el peso local acumulado en la ventana actual.
-
-        :return: Peso local usado en el minuto actual.
         """
         return self._used_local
 
@@ -155,8 +141,6 @@ class BinanceFixedWindowLimiter:
     def last_server_used(self) -> Optional[int]:
         """
         Devuelve el último valor observado de X-MBX-USED-WEIGHT-1M.
-
-        :return: Contador reportado por el servidor o None si aún no se ha visto.
         """
         return self._last_server_used
 
@@ -167,6 +151,10 @@ class BinanceFixedWindowLimiter:
         Si el consumo local + weight supera el umbral de seguridad
         (max_per_minute * safety_ratio), este método duerme hasta el
         inicio del siguiente minuto antes de continuar.
+
+        :param weight: Peso a consumir en esta operación (REQUEST_WEIGHT).
+        :param now: Epoch actual en segundos. Sólo se usa en tests; en
+                    producción se deja en None para usar time.time().
         """
         if weight <= 0:
             raise ValueError("weight debe ser mayor que cero")
@@ -179,22 +167,24 @@ class BinanceFixedWindowLimiter:
                 # Actualizar ventana si ha cambiado
                 self._rollover_if_needed(now=now)
 
-                effective_limit = int(self.max_per_minute * self.safety_ratio)
+                # Límite efectivo con factor de seguridad, al menos 1
+                effective_limit = max(1, int(self.max_per_minute * self.safety_ratio))
                 projected = self._used_local + weight
 
                 if projected <= effective_limit:
                     # Hay capacidad en esta ventana
                     self._used_local = projected
                     self._logger.debug(
-                        "Acquire: weight=%s, used_local=%s, max_per_minute=%s",
+                        "Acquire: weight=%s, used_local=%s, max_per_minute=%s, effective_limit=%s",
                         weight,
                         self._used_local,
                         self.max_per_minute,
+                        effective_limit,
                     )
                     return
 
                 # No hay capacidad → calcular cuánto dormir
-                current_window_start = self._bucket_id * 60  # type: ignore[arg-type]
+                current_window_start = (self._bucket_id or self._current_bucket(now)) * 60
                 next_window_start = current_window_start + 60
                 sleep_for = max(0.0, next_window_start - now)
 
@@ -232,8 +222,10 @@ class BinanceFixedWindowLimiter:
             return
 
         with self._lock:
+            # Actualizamos siempre last_server_used
             self._last_server_used = server_used
 
+            # Sólo subimos used_local, nunca lo bajamos (comportamiento conservador)
             if server_used > self._used_local:
                 self._logger.debug(
                     "Sincronizando used_local con valor de servidor: %s -> %s",

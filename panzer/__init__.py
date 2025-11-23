@@ -1,7 +1,3 @@
-# panzer/__init__.py
-"""
-Panzer v2 - refactor en curso.
-"""
+from .exchanges.binance.public import BinancePublicClient
 
-__version__ = "2.0.0"
-__all__: list[str] = []
+__all__ = ["BinancePublicClient"]
