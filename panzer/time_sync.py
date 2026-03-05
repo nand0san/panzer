@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from time import time
-from typing import Deque, List, Tuple
 
 
 @dataclass
@@ -25,10 +24,11 @@ class TimeOffsetEstimator:
     - max_samples: nº máximo de muestras almacenadas.
     - max_age_seconds: edad máxima de las muestras consideradas.
     """
+
     max_samples: int = 20
     max_age_seconds: float = 60.0
 
-    _samples: Deque[Tuple[float, float]] = field(
+    _samples: deque[tuple[float, float]] = field(
         default_factory=deque,
         init=False,
         repr=False,
@@ -83,7 +83,7 @@ class TimeOffsetEstimator:
         if not self._samples:
             return 0.0
 
-        offsets: List[float] = sorted(o for _, o in self._samples)
+        offsets: list[float] = sorted(o for _, o in self._samples)
         n = len(offsets)
         mid = n // 2
 

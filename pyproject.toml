@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+backend = "setuptools.build_meta"
+
+[project]
+name = "panzer"
+version = "2.0.0"
+description = "REST API manager for Binance API. Manages weights and credentials simply and securely."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "nand0san" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests",
+]
+
+[project.urls]
+Homepage = "https://github.com/nand0san/panzer"
+Repository = "https://github.com/nand0san/panzer"
+
+[tool.setuptools.packages.find]
+include = ["panzer*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"*" = []
+
+[tool.setuptools.exclude-package-data]
+"*" = ["*.ipynb", "*.ipynb_checkpoints/*"]
+
+# --- ruff (lint + format) ---
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = []
+
+# --- mypy ---
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+# --- pytest ---
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

@@ -15,14 +15,14 @@ es una capa fina sobre requests + rate limiting + manejo de errores.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Optional, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 import requests
 
+from panzer.errors import BinanceAPIException, handle_response
 from panzer.log_manager import LogManager
-from panzer.errors import handle_response, BinanceAPIException
 from panzer.rate_limit.binance_fixed import BinanceFixedWindowLimiter
-
 
 # ==========================
 # Constantes básicas de Binance
@@ -69,16 +69,18 @@ def _build_url(base_url: str, endpoint: str) -> str:
 def binance_public_get(
     base_url: str,
     endpoint: str,
-    params: Optional[Dict[str, Any]],
+    params: dict[str, Any] | None,
     limiter: BinanceFixedWindowLimiter,
     weight: int = 1,
     timeout: int = 10,
-) -> Tuple[Any, Mapping[str, str]]:
+) -> tuple[Any, Mapping[str, str]]:
     """
-    Realiza una petición GET pública contra Binance usando rate limiting.
+    Realiza una petición GET pública contra Binance.
+
+    No hace acquire internamente — el caller debe llamar a
+    limiter.acquire(weight) antes si lo necesita.
 
     Flujo:
-    - `limiter.acquire(weight)` antes de lanzar el GET.
     - GET con requests, con logs de entrada/salida.
     - `limiter.update_from_headers(resp.headers)` para sincronizar
       X-MBX-USED-WEIGHT-1M.
@@ -97,9 +99,6 @@ def binance_public_get(
     :raises requests.RequestException: ante errores de red.
     """
     url = _build_url(base_url, endpoint)
-
-    # Rate limiting local antes de llamar a la API
-    limiter.acquire(weight=weight)
 
     _http_log.debug(f"GET {url} params={params} weight={weight} used_local={limiter.used_local}")
 

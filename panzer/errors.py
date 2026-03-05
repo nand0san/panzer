@@ -9,10 +9,9 @@ Se centra en:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Union
-
 import json
+from dataclasses import dataclass
+from typing import Any
 
 import requests
 
@@ -22,11 +21,12 @@ from panzer.log_manager import LogManager
 # Logger específico del módulo
 # ==========================
 
-_log = LogManager(name="panzer.errors",
-                  folder="logs",
-                  filename="errors.log",
-                  level="INFO",
-                  )
+_log = LogManager(
+    name="panzer.errors",
+    folder="logs",
+    filename="errors.log",
+    level="INFO",
+)
 
 
 # ==========================
@@ -46,23 +46,20 @@ class BinanceAPIErrorPayload:
         }
     """
 
-    code: Optional[int]
-    msg: Optional[str]
+    code: int | None
+    msg: str | None
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BinanceAPIErrorPayload":
+    def from_dict(cls, data: dict[str, Any]) -> BinanceAPIErrorPayload:
         code = data.get("code")
         msg = data.get("msg")
 
         try:
-            code_int: Optional[int] = int(code) if code is not None else None
+            code_int: int | None = int(code) if code is not None else None
         except (TypeError, ValueError):
             code_int = None
 
-        if msg is not None:
-            msg_str = str(msg)
-        else:
-            msg_str = None
+        msg_str = str(msg) if msg is not None else None
 
         return cls(code=code_int, msg=msg_str)
 
@@ -80,12 +77,12 @@ class BinanceAPIException(Exception):
     """
 
     def __init__(
-            self,
-            status_code: int,
-            method: str,
-            url: str,
-            error_payload: Optional[BinanceAPIErrorPayload] = None,
-            body: Optional[str] = None,
+        self,
+        status_code: int,
+        method: str,
+        url: str,
+        error_payload: BinanceAPIErrorPayload | None = None,
+        body: str | None = None,
     ) -> None:
         self.status_code = status_code
         self.method = method
@@ -95,10 +92,7 @@ class BinanceAPIException(Exception):
 
         base_msg = f"[{status_code}] {method} {url}"
 
-        if error_payload is not None:
-            detail = f" (code={error_payload.code}, msg={error_payload.msg})"
-        else:
-            detail = ""
+        detail = f" (code={error_payload.code}, msg={error_payload.msg})" if error_payload is not None else ""
 
         super().__init__(base_msg + detail)
 
@@ -108,7 +102,7 @@ class BinanceAPIException(Exception):
 # ==========================
 
 
-def _extract_json_safe(response: requests.Response) -> Tuple[Optional[Union[Dict[str, Any], Any]], Optional[str]]:
+def _extract_json_safe(response: requests.Response) -> tuple[dict[str, Any] | Any | None, str | None]:
     """
     Intenta parsear JSON de la respuesta. Si falla, devuelve (None, texto).
 
@@ -135,19 +129,21 @@ def _build_exception(response: requests.Response) -> BinanceAPIException:
 
     json_data, raw_text = _extract_json_safe(response)
 
-    error_payload: Optional[BinanceAPIErrorPayload] = None
+    error_payload: BinanceAPIErrorPayload | None = None
 
-    if isinstance(json_data, dict):
-        # Intentamos interpretar el payload como error típico de Binance
-        if "code" in json_data or "msg" in json_data:
-            error_payload = BinanceAPIErrorPayload.from_dict(json_data)
+    if isinstance(json_data, dict) and ("code" in json_data or "msg" in json_data):
+        error_payload = BinanceAPIErrorPayload.from_dict(json_data)
 
     exc = BinanceAPIException(
         status_code=response.status_code,
         method=method,
         url=url,
         error_payload=error_payload,
-        body=raw_text if raw_text is not None else (json.dumps(json_data, ensure_ascii=False) if json_data is not None else None),
+        body=(
+            raw_text
+            if raw_text is not None
+            else (json.dumps(json_data, ensure_ascii=False) if json_data is not None else None)
+        ),
     )
 
     _log.error(

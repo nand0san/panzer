@@ -28,7 +28,6 @@ from __future__ import annotations
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from typing import Optional
 
 
 class LogManager:
@@ -42,13 +41,15 @@ class LogManager:
     No hace imports de otros módulos de Panzer para evitar bucles.
     """
 
-    def __init__(self,
-                 name: str,
-                 folder: str = "logs",
-                 filename: Optional[str] = None,
-                 level: str = "INFO",
-                 max_log_size_mb: int = 10,
-                 backup_count: int = 5) -> None:
+    def __init__(
+        self,
+        name: str,
+        folder: str = "logs",
+        filename: str | None = None,
+        level: str = "INFO",
+        max_log_size_mb: int = 10,
+        backup_count: int = 5,
+    ) -> None:
         """
         :param name:
             Nombre interno del logger (logging.getLogger(name)).

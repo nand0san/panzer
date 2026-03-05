@@ -13,10 +13,11 @@ para intervalos de interés (por ejemplo, MINUTE).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
-from panzer.errors import handle_response, BinanceAPIException
+
+from panzer.errors import BinanceAPIException, handle_response
 
 # ==========================
 # URLs base /exchangeInfo
@@ -62,9 +63,9 @@ class ExchangeRateLimits:
     - others: lista completa de todos los `rateLimits` devueltos.
     """
 
-    request_weight: Optional[RateLimit]
-    raw_requests: Optional[RateLimit]
-    others: List[RateLimit]
+    request_weight: RateLimit | None
+    raw_requests: RateLimit | None
+    others: list[RateLimit]
 
 
 # ==========================
@@ -72,7 +73,7 @@ class ExchangeRateLimits:
 # ==========================
 
 
-def _fetch_exchange_info(url: str, timeout: int = 10) -> Dict[str, Any]:
+def _fetch_exchange_info(url: str, timeout: int = 10) -> dict[str, Any]:
     """
     Lanza un GET contra el endpoint /exchangeInfo correspondiente y
     retorna el JSON parseado.
@@ -97,7 +98,7 @@ def _fetch_exchange_info(url: str, timeout: int = 10) -> Dict[str, Any]:
     return data
 
 
-def _parse_rate_limits(payload: Dict[str, Any]) -> ExchangeRateLimits:
+def _parse_rate_limits(payload: dict[str, Any]) -> ExchangeRateLimits:
     """
     Parsea la sección `rateLimits` de la respuesta de /exchangeInfo.
 
@@ -108,7 +109,7 @@ def _parse_rate_limits(payload: Dict[str, Any]) -> ExchangeRateLimits:
     :param payload: JSON devuelto por /exchangeInfo.
     :return: ExchangeRateLimits con los límites relevantes y la lista completa.
     """
-    raw_rl: List[RateLimit] = []
+    raw_rl: list[RateLimit] = []
 
     for item in payload.get("rateLimits", []):
         try:
@@ -124,28 +125,18 @@ def _parse_rate_limits(payload: Dict[str, Any]) -> ExchangeRateLimits:
             continue
 
     # Seleccionar REQUEST_WEIGHT más interesante (MINUTE; intervalNum pequeño).
-    request_weight_candidates = [
-        rl
-        for rl in raw_rl
-        if rl.rate_limit_type.upper() == "REQUEST_WEIGHT"
-    ]
+    request_weight_candidates = [rl for rl in raw_rl if rl.rate_limit_type.upper() == "REQUEST_WEIGHT"]
 
-    request_weight: Optional[RateLimit] = None
+    request_weight: RateLimit | None = None
     if request_weight_candidates:
         # Heurística simple: priorizar MINUTE y menor intervalNum.
-        request_weight_candidates.sort(
-            key=lambda r: (r.interval.upper() != "MINUTE", r.interval_num)
-        )
+        request_weight_candidates.sort(key=lambda r: (r.interval.upper() != "MINUTE", r.interval_num))
         request_weight = request_weight_candidates[0]
 
     # Seleccionar RAW_REQUESTS (nombre varía: RAW_REQUESTS / RAW_REQUEST)
-    raw_requests_candidates = [
-        rl
-        for rl in raw_rl
-        if rl.rate_limit_type.upper() in ("RAW_REQUESTS", "RAW_REQUEST")
-    ]
+    raw_requests_candidates = [rl for rl in raw_rl if rl.rate_limit_type.upper() in ("RAW_REQUESTS", "RAW_REQUEST")]
 
-    raw_requests: Optional[RateLimit] = raw_requests_candidates[0] if raw_requests_candidates else None
+    raw_requests: RateLimit | None = raw_requests_candidates[0] if raw_requests_candidates else None
 
     return ExchangeRateLimits(
         request_weight=request_weight,

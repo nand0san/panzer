@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Mapping, Optional
+from collections.abc import Mapping
 
-from panzer.log_manager import LogManager
 from panzer.exchanges.binance.config import ExchangeRateLimits
+from panzer.log_manager import LogManager
 
 
 class BinanceFixedWindowLimiter:
@@ -68,17 +68,19 @@ class BinanceFixedWindowLimiter:
         if not (0.0 < safety_ratio <= 1.0):
             raise ValueError("safety_ratio debe estar en el rango (0, 1]")
 
+        self._now_func = time.time
+
         self.max_per_minute: int = max_per_minute
         self.safety_ratio: float = safety_ratio
 
         # Identificador de la ventana actual (bucket = epoch // 60)
-        self._bucket_id: Optional[int] = None
+        self._bucket_id: int | None = None
 
         # Contador local de peso usado en la ventana actual
         self._used_local: int = 0
 
         # Último valor observado del contador del servidor (cabecera)
-        self._last_server_used: Optional[int] = None
+        self._last_server_used: int | None = None
 
         # Logger propio del rate limiter
         self._logger = LogManager(
@@ -96,7 +98,7 @@ class BinanceFixedWindowLimiter:
     # ==========================
 
     @staticmethod
-    def _current_bucket(now: Optional[float] = None) -> int:
+    def _current_bucket(now: float | None = None) -> int:
         """
         Calcula el identificador de la ventana actual en minutos
         (floor(epoch_seconds / 60)).
@@ -108,7 +110,7 @@ class BinanceFixedWindowLimiter:
             now = time.time()
         return int(now) // 60
 
-    def _rollover_if_needed(self, now: Optional[float] = None) -> None:
+    def _rollover_if_needed(self, now: float | None = None) -> None:
         """
         Comprueba si hemos cambiado de ventana (minuto). Si es así, resetea
         el contador local y el valor de servidor observado.
@@ -138,13 +140,16 @@ class BinanceFixedWindowLimiter:
         return self._used_local
 
     @property
-    def last_server_used(self) -> Optional[int]:
+    def last_server_used(self) -> int | None:
         """
         Devuelve el último valor observado de X-MBX-USED-WEIGHT-1M.
         """
         return self._last_server_used
 
-    def acquire(self, weight: int = 1, now: Optional[float] = None) -> None:
+    def set_now_func(self, func):
+        self._now_func = func
+
+    def acquire(self, weight: int = 1, now: float | None = None) -> None:
         """
         Reserva capacidad de peso en la ventana actual.
 
@@ -161,7 +166,7 @@ class BinanceFixedWindowLimiter:
 
         while True:
             if now is None:
-                now = time.time()
+                now = self._now_func()
 
             with self._lock:
                 # Actualizar ventana si ha cambiado
@@ -205,16 +210,14 @@ class BinanceFixedWindowLimiter:
         """
         Sincroniza el contador local con X-MBX-USED-WEIGHT-1M (si está presente).
         """
-        server_used: Optional[int] = None
+        server_used: int | None = None
 
         for key, value in headers.items():
             if key.lower() == "x-mbx-used-weight-1m":
                 try:
                     server_used = int(value)
                 except (TypeError, ValueError):
-                    self._logger.debug(
-                        "No se ha podido parsear X-MBX-USED-WEIGHT-1M=%r", value
-                    )
+                    self._logger.debug("No se ha podido parsear X-MBX-USED-WEIGHT-1M=%r", value)
                     server_used = None
                 break
 
@@ -243,12 +246,9 @@ class BinanceFixedWindowLimiter:
         cls,
         limits: ExchangeRateLimits,
         safety_ratio: float = 0.9,
-    ) -> "BinanceFixedWindowLimiter":
+    ) -> BinanceFixedWindowLimiter:
         if limits.request_weight is None:
-            raise ValueError(
-                "ExchangeRateLimits.request_weight no está definido; no se "
-                "puede construir el limitador."
-            )
+            raise ValueError("ExchangeRateLimits.request_weight no está definido; no se puede construir el limitador.")
         return cls(
             max_per_minute=limits.request_weight.limit,
             safety_ratio=safety_ratio,
@@ -261,6 +261,7 @@ class BinanceFixedWindowLimiter:
 
 if __name__ == "__main__":
     import requests
+
     from panzer.exchanges.binance.config import get_spot_rate_limits
 
     spot_limits = get_spot_rate_limits()
@@ -275,7 +276,5 @@ if __name__ == "__main__":
         limiter.update_from_headers(resp.headers)
 
         print(
-            f"Iter={i} status={resp.status_code} "
-            f"used_local={limiter.used_local} "
-            f"server_used={limiter.last_server_used}"
+            f"Iter={i} status={resp.status_code} used_local={limiter.used_local} server_used={limiter.last_server_used}"
         )
