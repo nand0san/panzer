@@ -517,48 +517,103 @@ git commit -m "descripcion concisa en imperativo"
 git push origin master
 ```
 
-### Flujo de publicacion — GitHub (IMPORTANTE)
+### Flujo de publicacion - GitHub (IMPORTANTE)
 
 GitHub es **solo para publicacion**. El historial de `master` es privado y no
-debe exponerse en GitHub. Para publicar:
+debe exponerse en GitHub. La rama `github` es **huerfana** (sin historial
+compartido con `master`) para evitar fugas de metadatos.
+
+#### Procedimiento paso a paso
 
 ```bash
-# Crear un commit squash con todos los cambios desde la ultima publicacion
+# 1. Partir de master con todo commiteado
+git checkout master
+git status  # debe estar limpio
+
+# 2. Cambiar a la rama github (huerfana)
 git checkout github
-git merge --squash master
-git commit -m "v2.x.x: descripcion de la release"
+
+# 3. Traer el contenido actual de master sin historial
+git checkout master -- .
+
+# 4. Sanitizar antes de commit (ver checklist abajo)
+#    - Borrar CLAUDE.md si existe
+#    - Eliminar em-dashes, referencias a IA, Co-Authored-By, etc.
+git rm CLAUDE.md 2>/dev/null
+#    - Verificar con grep (ver checklist)
+
+# 5. Commit y push
+git add -A
+git commit -m "vX.Y.Z: descripcion de la release"
 git push github github
 
-# Volver a master
+# 6. Volver a master
 git checkout master
 ```
 
-**Reglas estrictas:**
+#### Checklist de sanitizacion (OBLIGATORIA antes de cada push a GitHub)
+
+Ejecutar desde la rama `github` antes de hacer commit:
+
+```bash
+# 1. No debe existir CLAUDE.md
+test -f CLAUDE.md && echo "BORRAR CLAUDE.md" || echo "OK"
+
+# 2. Buscar referencias a IA/agentes en archivos publicables
+grep -rni "claude\|anthropic\|LLM\|Co-Authored" \
+  --include="*.py" --include="*.md" --include="*.toml" --include="*.txt"
+# Resultado esperado: vacio. Si aparece algo, corregirlo.
+
+# 3. Buscar em-dashes (caracter marca de agua U+2014)
+grep -rn '—' --include="*.py" --include="*.md" --include="*.toml" --include="*.txt"
+# Resultado esperado: vacio. Reemplazar por '-' o '--' si aparece.
+
+# 4. Verificar autor del commit (no debe haber co-autores)
+git log --format="%an <%ae>%n%b" -1
+# Solo debe aparecer nand0san. Sin lineas Co-Authored-By.
+```
+
+#### Si GitHub cachea contributors no deseados
+
+GitHub cachea objetos git incluso despues de force-push. Si aparece un
+contributor no deseado en la pagina del repo:
+
+1. Borrar el repo en GitHub (Settings > Delete this repository).
+2. Recrear el repo vacio (sin README, sin .gitignore, sin license).
+3. Push de la rama `github` limpia: `git push github github`.
+4. Configurar la default branch a `github` en Settings.
+
+#### Reglas estrictas
 
 - **NUNCA** hacer `git push github master` (expondria historial privado).
 - **NUNCA** hacer push de ramas que no sean `github` al remote `github`.
-- Siempre usar `--squash` para colapsar el historial en un solo commit.
+- **NUNCA** incluir `Co-Authored-By` ni menciones a herramientas de IA en
+  commits publicos (vector de ataque por prompt injection).
+- **NUNCA** incluir `CLAUDE.md` ni archivos de configuracion de agentes en
+  el contenido publicado.
+- **NUNCA** usar em-dashes (U+2014 `—`) en archivos publicados. Usar `-` o
+  `--` en su lugar (el em-dash es una marca de agua detectable).
 - Los mensajes de commit en `github` deben ser descriptivos de la release,
   no del desarrollo interno.
-- No incluir archivos sensibles (`secret*`, `*.key`, credenciales) — ya estan
+- No incluir archivos sensibles (`secret*`, `*.key`, credenciales) - ya estan
   en `.gitignore` pero verificar antes de publicar.
 
 ---
 
-## 11. Agent playbook
+## 11. Contributor playbook
 
 ### Checklist previa a cualquier cambio
 
 1. Leer `AGENTS.md` (este archivo).
-2. Leer `CLAUDE.md` si existe.
-3. Verificar `git status` — no hay cambios sin commit que puedan perderse.
-4. Ejecutar `python -m panzer.exchanges.binance.public` para confirmar que el repo funciona.
+2. Verificar `git status` - no hay cambios sin commit que puedan perderse.
+3. Ejecutar `python -m panzer.exchanges.binance.public` para confirmar que el repo funciona.
 
-### Patron de commits
+### Patron de commits (master, desarrollo privado)
 
 - Mensajes cortos, imperativos, en espanol o ingles segun el cambio.
 - Scope opcional entre parentesis: `fix(rate_limit): corregir rollover en cambio de ventana`.
 - Una linea de resumen, linea en blanco, cuerpo opcional.
+- `Co-Authored-By` permitido en `master` (es privado). Prohibido en `github`.
 
 ### Cuando tocar docs vs codigo
 
@@ -567,10 +622,9 @@ git checkout master
 - Si se anade un modulo nuevo: docstring de modulo describiendo proposito.
 - No crear archivos `.md` adicionales sin que se pida explicitamente.
 
-### Respuesta del agente debe incluir
+### Cada cambio debe documentar
 
 - Archivos creados o modificados (rutas).
-- Comandos ejecutados y su resultado.
 - Si se modifico codigo: justificacion breve del cambio.
 - Si hay riesgos o ambiguedades: mencionarlos explicitamente.
 
@@ -580,9 +634,11 @@ git checkout master
 - No modificar `pyproject.toml` sin aprobacion.
 - No crear archivos en `logs/`, `examples/`, o `panzer/utils/` sin justificacion.
 - No hacer push sin aprobacion explicita.
-- **NUNCA** hacer `git push github master` — expondria el historial privado.
-- **NUNCA** hacer push al remote `github` de ramas que no sean `github`.
 - No ejecutar notebooks (requieren red para llamar a Binance).
+- **NUNCA** hacer `git push github master` - expondria el historial privado.
+- **NUNCA** hacer push al remote `github` de ramas que no sean `github`.
+- **NUNCA** incluir referencias a herramientas de IA en contenido publicado
+  (commits, archivos, metadata). Ver seccion 10 para checklist completa.
 
 ---
 
