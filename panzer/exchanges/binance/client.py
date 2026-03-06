@@ -147,7 +147,7 @@ class BinanceClient(BinancePublicClient):
         dict
             Respuesta del endpoint ``/account``.
         """
-        endpoint = self._endpoint("account") if "account" in self._endpoints_map else self._account_endpoint()
+        endpoint = self._account_endpoint()
         data = self.signed_request("GET", endpoint, recv_window=recv_window, timeout=timeout)
         if not isinstance(data, dict):
             raise RuntimeError(f"Respuesta inesperada de account: {data!r}")
@@ -374,11 +374,6 @@ class BinanceClient(BinancePublicClient):
         return data  # type: ignore[return-value]
 
     # ── Resolucion de endpoints privados por mercado ─────────
-
-    @property
-    def _endpoints_map(self) -> dict[str, str]:
-        """Mapa de endpoints privados por mercado."""
-        return _PRIVATE_ENDPOINTS.get(self.market, {})
 
     def _account_endpoint(self) -> str:
         return _PRIVATE_ENDPOINTS[self.market]["account"]
