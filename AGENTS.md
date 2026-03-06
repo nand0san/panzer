@@ -1,10 +1,10 @@
-# AGENTS.md — Manual de operacion del repositorio Panzer
+# AGENTS.md - Manual de operacion del repositorio Panzer
 
 ## 1. Purpose
 
 Panzer es una libreria Python para gestionar conexiones REST a la API de Binance.
-Maneja rate-limiting dinamico, credenciales cifradas, firmas de peticiones y
-sincronizacion de reloj con el servidor.
+Maneja rate-limiting dinamico, credenciales cifradas con AES, firmas HMAC-SHA256
+de peticiones y sincronizacion de reloj con el servidor.
 
 Este documento es el manual de referencia para agentes LLM y desarrolladores humanos.
 
@@ -17,11 +17,12 @@ Este documento es el manual de referencia para agentes LLM y desarrolladores hum
 - **Distribution name (PyPI):** `panzer`
 - **Import name:** `panzer`
 - **Build system:** `pyproject.toml` (PEP 621, setuptools backend).
-- **Version local (`pyproject.toml`):** `2.0.0`
-- **Version publicada (PyPI):** `1.0.11`
-- **Gestion de version:** manual en `pyproject.toml` campo `version`. No hay `version.py`, SCM ni tags.
+- **Version local (`pyproject.toml`):** `2.1.0`
+- **Version publicada (PyPI):** `2.1.0`
+- **Gestion de version:** manual en `pyproject.toml` campo `version`. No hay `version.py` ni SCM.
+- **Tags:** ninguno (pendiente de crear).
 - **Python requerido:** `>= 3.11`
-- **Python del venv:** 3.12.3
+- **Python del venv:** 3.12
 
 ### Layout
 
@@ -29,23 +30,28 @@ Este documento es el manual de referencia para agentes LLM y desarrolladores hum
 - **Paquete principal:** `panzer`
 - **Subpaquetes:**
   - `panzer.exchanges` (namespace para exchanges)
-  - `panzer.exchanges.binance` (adaptador Binance)
-  - `panzer.http` (cliente HTTP bajo nivel)
+  - `panzer.exchanges.binance` (adaptador Binance: public + authenticated)
+  - `panzer.http` (cliente HTTP bajo nivel, publico y firmado)
   - `panzer.rate_limit` (rate limiters)
-  - `panzer.utils` (vacio)
-- **Tests:** `tests/` con notebooks `.ipynb` (no hay tests pytest aun).
+- **Tests:** `tests/` con 239 tests pytest (unitarios + empiricos contra API real).
 - **Notebooks de test:** `tests/exceptions.ipynb`, `tests/limiter.ipynb`, `tests/rate_limits_empirical.ipynb`
-- **Directorios vacios:** `panzer/utils/`, `examples/`
+- **Notebooks de ejemplos:** `examples/01_public_endpoints.ipynb` .. `04_rate_limiting.ipynb`
 - **Entrypoints CLI:** ninguno.
-- **Unica dependencia runtime:** `requests` (declarada en `pyproject.toml`).
+- **Dependencias runtime:** `requests`, `pycryptodome` (declaradas en `pyproject.toml`).
+
+### Exports del paquete
+
+```python
+from panzer import BinanceClient, BinancePublicClient, CredentialManager
+```
 
 ### Tooling de desarrollo
 
-- **Linter/formatter:** `ruff` — configurado en `pyproject.toml` (`[tool.ruff]`).
-- **Type checker:** pendiente (mypy configurado en `pyproject.toml` pero no integrado aun).
-- **Test runner:** pendiente (pytest configurado en `pyproject.toml` pero sin tests `.py` aun).
-- **CI:** ninguno detectado (no hay `.github/`, `.gitlab-ci.yml`).
-- **Documentacion (Sphinx/MkDocs):** ninguna configurada (no hay `docs/`, `conf.py`).
+- **Linter/formatter:** `ruff` -- configurado en `pyproject.toml` (`[tool.ruff]`). Limpio.
+- **Type checker:** `mypy` -- configurado en `pyproject.toml`. Pasa sin errores (17 ficheros).
+- **Test runner:** `pytest` -- configurado en `pyproject.toml`. 239 tests recogidos.
+- **CI:** ninguno (GitHub es solo escaparate; validacion local).
+- **Documentacion (Sphinx/MkDocs):** ninguna configurada.
 - **Pre-commit:** no hay `.pre-commit-config.yaml`.
 
 ### Archivos relevantes en raiz
@@ -53,16 +59,18 @@ Este documento es el manual de referencia para agentes LLM y desarrolladores hum
 | Archivo | Contenido |
 |---|---|
 | `pyproject.toml` | Metadata PEP 621, build, config de ruff/mypy/pytest |
-| `requirements.txt` | `requests` (mantenido por compatibilidad) |
-| `CHANGELOG.md` | Historial de versiones (v1.x y v2.0.0) |
-| `LICENSE` | Presente (MIT) |
+| `requirements.txt` | `requests` (compatibilidad; la fuente de verdad es pyproject.toml) |
+| `CHANGELOG.md` | Historial de versiones (v0.1.0 a v2.1.0) |
+| `LICENSE` | MIT |
 | `README.md` | Documentacion principal del paquete |
-| `.gitignore` | Extenso; excluye `*.md` excepto README y CHANGELOG |
+| `.gitignore` | Extenso; excluye `*.md` excepto README, CHANGELOG y DATA_PROPERTIES |
 
 ### Advertencia .gitignore
 
-`.gitignore` excluye `*.md` con excepciones explicitas para `README.md`,
-`CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md` y `TODO.md` (ya configuradas).
+`.gitignore` excluye `*.md` globalmente. Excepciones explicitas:
+`README.md`, `CHANGELOG.md`, `tests/DATA_PROPERTIES.md`.
+Los archivos `AGENTS.md`, `CLAUDE.md` y `TODO.md` estan excluidos de git
+a proposito (no deben publicarse).
 
 ---
 
@@ -72,18 +80,18 @@ Este documento es el manual de referencia para agentes LLM y desarrolladores hum
 
 | Elemento | Idioma | Ejemplo |
 |---|---|---|
-| Nombres de modulos | ingles | `log_manager`, `time_sync`, `rate_limit` |
-| Nombres de clases | ingles PascalCase | `BinancePublicClient`, `TimeOffsetEstimator` |
-| Nombres de funciones/metodos | ingles snake_case | `handle_response()`, `_drop_old()` |
-| Nombres de variables | ingles snake_case | `max_per_minute`, `bucket_id`, `sleep_for` |
+| Nombres de modulos | ingles | `log_manager`, `time_sync`, `credentials` |
+| Nombres de clases | ingles PascalCase | `BinanceClient`, `CredentialManager`, `AesCipher` |
+| Nombres de funciones/metodos | ingles snake_case | `handle_response()`, `signed_request()` |
+| Nombres de variables | ingles snake_case | `max_per_minute`, `bucket_id`, `recv_window` |
 | Constantes | ingles UPPER_SNAKE | `BINANCE_SPOT_BASE_URL`, `REQUEST_WEIGHT` |
-| Metodos privados | prefijo `_` | `_build_exception()`, `_rollover_if_needed()` |
+| Metodos privados | prefijo `_` | `_build_exception()`, `_account_endpoint()` |
 | Docstrings | **espanol** | `"""Realiza una peticion GET publica..."""` |
 | Comentarios inline | **espanol** | `# Intentamos interpretar el payload` |
 | Mensajes de log | **espanol** | `"Limite de seguridad alcanzado..."` |
 | Mensajes de excepcion | **espanol** | `"Mercado no soportado: ..."` |
 
-### 3.2 Docstrings — NumPy style (napoleon), Sphinx-ready
+### 3.2 Docstrings - NumPy style (napoleon), Sphinx-ready
 
 **Formato obligatorio** para funciones y clases publicas.
 
@@ -116,10 +124,7 @@ Reglas:
 - Secciones Napoleon: `Parameters`, `Returns`, `Raises`, `Examples` cuando aplique.
 - Type hints en la firma, no duplicar tipos en la docstring.
 - Para funciones privadas simples: docstring de una linea basta.
-
-> **Nota:** El codigo existente usa estilo Sphinx reST (`:param:`, `:return:`,
-> `:raises:`). Codigo nuevo debe usar NumPy style. Migrar el existente solo
-> cuando se modifique un metodo por otra razon.
+- Todo el codigo existente ya usa NumPy style. Mantenerlo asi.
 
 ### 3.3 Type hints
 
@@ -127,15 +132,16 @@ Reglas:
 - Sintaxis moderna 3.10+: `float | None`, `list[dict]`, `dict[str, Any]`.
 - `from __future__ import annotations` al inicio de cada modulo (ya presente en todo el repo).
 - Usar `Literal[...]` para valores fijos: `MarketType = Literal["spot", "um", "cm"]`.
-- Cobertura objetivo: 100% de firmas publicas, 95%+ privadas.
+- Cobertura actual: 100% de firmas. mypy pasa limpio.
 
 ### 3.4 Estilo y arquitectura
 
 - **Separacion de capas:** config (parseo) -> http (transporte) -> rate_limit (control) -> exchanges (alto nivel).
 - **Funciones puras cuando sea posible.** Separar I/O de logica.
 - **Errores:** excepciones explicitas con mensajes utiles en espanol. Jerarquia: `BinanceAPIException` como base.
+- **Sin retry automatico:** la libreria devuelve la respuesta o lanza la excepcion tal cual. El usuario decide su estrategia de reintentos.
 - **Dataclasses** para modelos de datos (`@dataclass`): `RateLimit`, `ExchangeRateLimits`, `BinanceAPIErrorPayload`.
-- **Logging:** patron existente — un `LogManager` por modulo al inicio del fichero:
+- **Logging:** patron existente -- un `LogManager` por modulo al inicio del fichero:
   ```python
   _log = LogManager(
       name="panzer.<modulo>",
@@ -156,10 +162,11 @@ from __future__ import annotations
 # 2. stdlib
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 # 3. terceros
 import requests
+from Crypto.Cipher import AES
 
 # 4. locales (panzer)
 from panzer.log_manager import LogManager
@@ -176,9 +183,10 @@ modulo inferior o usar import local dentro de una funcion.
 |---|---|
 | Nuevo exchange (ej. Bybit) | `panzer/exchanges/bybit/` con `__init__.py` y modulos |
 | Nuevo rate limiter | `panzer/rate_limit/<nombre>.py` y exportar en `__init__.py` |
-| Utilidad general | `panzer/utils/<nombre>.py` (actualmente vacio) |
-| Nuevo endpoint Binance | Anadir en `_ENDPOINTS` y metodo wrapper en `BinancePublicClient` |
-| HTTP con firma (signed) | Nuevo modulo en `panzer/http/` (ej. `signed_client.py`) |
+| Nuevo endpoint Binance publico | Anadir en `_ENDPOINTS` de `public.py` y metodo wrapper |
+| Nuevo endpoint Binance autenticado | Anadir en `_PRIVATE_ENDPOINTS` de `client.py` y metodo wrapper |
+| Utilidad criptografica | `panzer/crypto.py` |
+| Gestion de credenciales | `panzer/credentials.py` |
 
 ---
 
@@ -186,39 +194,48 @@ modulo inferior o usar import local dentro de una funcion.
 
 ```
 panzer/                         # raiz del repo
-├── panzer/                     # paquete importable
-│   ├── __init__.py             # exporta BinancePublicClient
-│   ├── errors.py               # BinanceAPIException, handle_response
-│   ├── log_manager.py          # LogManager (wrapper logging)
-│   ├── time_sync.py            # TimeOffsetEstimator
-│   ├── exchanges/
-│   │   ├── __init__.py
-│   │   └── binance/
-│   │       ├── __init__.py
-│   │       ├── config.py       # parseo de /exchangeInfo y rate limits
-│   │       ├── public.py       # BinancePublicClient (alto nivel)
-│   │       └── weights.py      # tablas de pesos por endpoint y mercado
-│   ├── http/
-│   │   ├── __init__.py         # exporta binance_public_get
-│   │   └── client.py           # cliente HTTP bajo nivel
-│   ├── rate_limit/
-│   │   ├── __init__.py         # exporta BinanceFixedWindowLimiter
-│   │   └── binance_fixed.py    # rate limiter ventana fija
-│   └── utils/                  # vacio
-├── tests/
-│   ├── __init__.py
-│   ├── exceptions.ipynb        # pruebas manuales de errores
-│   └── limiter.ipynb           # pruebas manuales del rate limiter
-├── examples/                   # vacio
-├── logs/                       # generados en runtime (gitignored)
-├── pyproject.toml
-├── requirements.txt
-├── AGENTS.md
-├── CLAUDE.md
-├── TODO.md
-├── CHANGELOG.md
-├── LICENSE
-└── README.md
++-- panzer/                     # paquete importable
+|   +-- __init__.py             # exporta BinanceClient, BinancePublicClient, CredentialManager
+|   +-- credentials.py          # CredentialManager (memory -> disk -> prompt)
+|   +-- crypto.py               # AesCipher (AES-128-CBC, clave derivada de maquina)
+|   +-- errors.py               # BinanceAPIException, handle_response
+|   +-- log_manager.py          # LogManager (wrapper logging + rotacion)
+|   +-- time_sync.py            # TimeOffsetEstimator
+|   +-- exchanges/
+|   |   +-- __init__.py
+|   |   +-- binance/
+|   |       +-- __init__.py
+|   |       +-- client.py       # BinanceClient (autenticado, extiende BinancePublicClient)
+|   |       +-- config.py       # parseo de /exchangeInfo y rate limits
+|   |       +-- public.py       # BinancePublicClient (endpoints publicos)
+|   |       +-- signer.py       # BinanceRequestSigner (HMAC-SHA256)
+|   |       +-- weights.py      # tablas de pesos por endpoint y mercado
+|   +-- http/
+|   |   +-- __init__.py         # exporta binance_public_get, binance_signed_request
+|   |   +-- client.py           # cliente HTTP bajo nivel (publico y firmado)
+|   +-- rate_limit/
+|       +-- __init__.py         # exporta BinanceFixedWindowLimiter
+|       +-- binance_fixed.py    # rate limiter ventana fija
++-- tests/
+|   +-- __init__.py
+|   +-- conftest.py             # fixtures con cache de sesion (3 mercados)
+|   +-- test_data_properties.py # 189 tests empiricos contra API real
+|   +-- test_crypto.py          # tests unitarios de AesCipher
+|   +-- test_credentials.py     # tests unitarios de CredentialManager
+|   +-- test_signer.py          # tests unitarios de BinanceRequestSigner
+|   +-- DATA_PROPERTIES.md      # documentacion de invariantes testeadas
+|   +-- *.ipynb                 # notebooks de pruebas manuales
++-- examples/
+|   +-- 01_public_endpoints.ipynb
+|   +-- 02_credentials_and_security.ipynb
+|   +-- 03_authenticated_trading.ipynb
+|   +-- 04_rate_limiting.ipynb
++-- logs/                       # generados en runtime (gitignored)
++-- pyproject.toml
++-- requirements.txt
++-- CHANGELOG.md
++-- LICENSE
++-- README.md
 ```
 
 ---
@@ -235,9 +252,9 @@ pip install -e .
 ```
 
 La instalacion editable (`-e .`) resuelve dependencias de `pyproject.toml`
-(solo `requests`) y permite importar `panzer` directamente.
+(`requests`, `pycryptodome`) y permite importar `panzer` directamente.
 
-### Uso basico
+### Uso basico -- endpoints publicos
 
 ```python
 from panzer import BinancePublicClient
@@ -245,6 +262,15 @@ from panzer import BinancePublicClient
 client = BinancePublicClient(market="spot", safety_ratio=0.9)
 client.ensure_time_offset_ready(min_samples=3)
 klines = client.klines("BTCUSDT", "1m", limit=5)
+```
+
+### Uso basico -- endpoints autenticados
+
+```python
+from panzer import BinanceClient
+
+client = BinanceClient(market="spot")  # pide credenciales la primera vez
+account = client.account()
 ```
 
 ### Pruebas manuales rapidas
@@ -260,9 +286,8 @@ python -m panzer.exchanges.binance.public
 
 ### Variables de entorno
 
-No se detectan variables de entorno relevantes para la API publica.
-Para endpoints firmados (futuro), se espera que las credenciales se gestionen
-via `CredentialManager` (mencionado en README, no implementado en v2).
+No se usan variables de entorno. Las credenciales se gestionan via
+`CredentialManager` (archivo cifrado `~/.panzer_creds`).
 
 ---
 
@@ -270,27 +295,40 @@ via `CredentialManager` (mencionado en README, no implementado en v2).
 
 ### Estado actual
 
-- **Linter/formatter:** `ruff` configurado y limpio (`ruff check panzer/` pasa sin errores).
-- **Type checker:** `mypy` configurado en `pyproject.toml` pero no integrado aun.
-- **Test runner:** `pytest` configurado en `pyproject.toml` pero sin tests `.py` aun.
-- **Tests manuales:** notebooks Jupyter en `tests/` (requieren red).
-- **No hay CI/CD.**
+- **Linter/formatter:** `ruff` -- pasa limpio.
+- **Type checker:** `mypy` -- pasa limpio (17 ficheros, 0 errores).
+- **Test runner:** `pytest` -- 239 tests (unitarios + empiricos).
+- **Tests empiricos:** requieren conexion a la API real de Binance.
+- **No hay CI/CD.** Validacion local unicamente.
 
 ### Lint y formato
 
 ```bash
-ruff check panzer/          # lint
-ruff format panzer/          # auto-format
-ruff format --check panzer/  # verificar formato sin modificar
+ruff check panzer/              # lint
+ruff format panzer/              # auto-format
+ruff format --check panzer/      # verificar formato sin modificar
 ```
 
-### Ejecucion de los notebooks existentes
+### Type checking
 
 ```bash
-pip install jupyter
-jupyter nbconvert --to notebook --execute tests/exceptions.ipynb
-jupyter nbconvert --to notebook --execute tests/limiter.ipynb
-jupyter nbconvert --to notebook --execute tests/rate_limits_empirical.ipynb
+mypy panzer/ --ignore-missing-imports
+```
+
+### Ejecucion de tests
+
+```bash
+# Todos los tests (requiere red para los empiricos)
+pytest tests/ -v
+
+# Solo tests unitarios (sin red)
+pytest tests/test_crypto.py tests/test_credentials.py tests/test_signer.py -v
+
+# Solo tests empiricos de un mercado
+pytest tests/test_data_properties.py -k "spot" -v
+
+# Con output verbose
+pytest tests/ -v -s
 ```
 
 ### Definition of done
@@ -299,8 +337,9 @@ Antes de mergear cualquier cambio:
 
 1. `ruff check panzer/` pasa sin errores.
 2. `ruff format --check panzer/` pasa sin errores.
-3. `python -m panzer.exchanges.binance.public` ejecuta sin error.
-4. No hay warnings de import al hacer `from panzer import BinancePublicClient`.
+3. `mypy panzer/ --ignore-missing-imports` pasa sin errores.
+4. `pytest tests/test_crypto.py tests/test_credentials.py tests/test_signer.py` pasa.
+5. No hay warnings de import al hacer `from panzer import BinanceClient`.
 
 ---
 
@@ -309,20 +348,21 @@ Antes de mergear cualquier cambio:
 ### Estado actual
 
 - **No hay sistema de documentacion configurado** (ni Sphinx ni MkDocs).
-- La documentacion vive en `README.md` y en los docstrings de cada modulo.
+- La documentacion vive en `README.md`, `CHANGELOG.md` y en los docstrings.
+- Notebooks educativos en `examples/` cubren los casos de uso principales.
 
 ### Convenciones de docstrings para futura generacion automatica
 
-- Formato: NumPy style (napoleon) — compatible con `sphinx.ext.napoleon`.
+- Formato: NumPy style (napoleon) -- compatible con `sphinx.ext.napoleon`.
 - `from __future__ import annotations` en todos los modulos.
 - Los docstrings de modulo describen el proposito y las caracteristicas principales.
 - Los docstrings de clase describen el contrato, no la implementacion.
 
 ---
 
-## 8. Binance rate limiting — modelo de referencia
+## 8. Binance rate limiting - modelo de referencia
 
-Fuente: documentacion oficial de Binance (developers.binance.com), marzo 2026.
+Fuente: documentacion oficial de Binance (developers.binance.com).
 
 ### 8.1 Tipos de rate limit
 
@@ -359,17 +399,13 @@ Binance define tres tipos en el array `rateLimits` de `/exchangeInfo`:
 
 ### 8.4 Limites tipicos por mercado
 
-Estos son los valores tipicos actuales. Se obtienen dinamicamente de `/exchangeInfo`
-y pueden cambiar sin previo aviso.
+Valores tipicos actuales. Se obtienen dinamicamente de `/exchangeInfo`.
 
 | Mercado | REQUEST_WEIGHT/1M | RAW_REQUESTS/5M | ORDERS/10S | ORDERS/1D |
 |---|---|---|---|---|
 | Spot | 6000 | 61000 | 100 | 200000 |
-| Futures UM | ~2400 | — | — | — |
-| Futures CM | ~2400 | — | — | — |
-
-> Los valores exactos de futures se obtienen de `/fapi/v1/exchangeInfo` y
-> `/dapi/v1/exchangeInfo`. Panzer los carga dinamicamente.
+| Futures UM | ~2400 | -- | -- | -- |
+| Futures CM | ~2400 | -- | -- | -- |
 
 ### 8.5 Tabla de pesos por endpoint
 
@@ -393,10 +429,10 @@ Consultar ese archivo para la referencia completa con funciones de peso variable
 | ticker/price | 2 / 4 | con symbol=2, sin symbol=4 |
 | ticker/bookTicker | 2 / 4 | con symbol=2, sin symbol=4 |
 | order (POST/DELETE) | 1 | |
-| account | 10 | |
-| myTrades | 10 | |
+| account | 20 | |
+| myTrades | 20 | |
 | allOrders | 20 | |
-| openOrders | 3 | |
+| openOrders | 6 / 80 | con symbol=6, sin symbol=80 |
 
 **Futures UM (/fapi/v1/)**
 
@@ -415,28 +451,28 @@ Consultar ese archivo para la referencia completa con funciones de peso variable
 | ticker/bookTicker | 2 / 5 | con symbol=2, sin symbol=5 |
 | openInterest | 1 | |
 
-**Futures CM (/dapi/v1/)** — misma estructura que UM con paths `/dapi/`.
+**Futures CM (/dapi/v1/)** -- misma estructura que UM con paths `/dapi/`.
 
 ### 8.6 Arquitectura de rate limiting en Panzer
 
 ```
-/exchangeInfo ──> config.py ──> ExchangeRateLimits (limites dinamicos)
-                                        │
-                                        ▼
+/exchangeInfo --> config.py --> ExchangeRateLimits (limites dinamicos)
+                                        |
+                                        v
                               BinanceFixedWindowLimiter
                               - bucket_id = epoch // 60
                               - used_local (contador)
                               - safety_ratio (0.9 = no superar 90%)
-                                        │
-                                        ▼
-                              acquire(weight) ──> duerme si projected > effective_limit
-                                        │
-                                        ▼
-                              update_from_headers() ──> sincroniza con X-MBX-USED-WEIGHT-1M
+                                        |
+                                        v
+                              acquire(weight) --> duerme si projected > effective_limit
+                                        |
+                                        v
+                              update_from_headers() --> sincroniza con X-MBX-USED-WEIGHT-1M
 ```
 
 ```
-weights.py ──> get_weight(market, endpoint, params) ──> peso estimado
+weights.py --> get_weight(market, endpoint, params) --> peso estimado
 ```
 
 ### 8.7 Mantenimiento de pesos
@@ -454,20 +490,19 @@ Los pesos pueden cambiar cuando Binance actualiza su API. Para actualizar:
 
 ## 9. PyPI status
 
-
 | Campo | Valor |
 |---|---|
 | Distribution name | `panzer` |
 | Import name | `panzer` |
-| Ultima version PyPI | 1.0.11 |
-| Version local (pyproject.toml) | 2.0.0 |
-| Summary | REST API manager for Binance API. Manages weights and credentials simply and securely. |
+| Ultima version PyPI | 2.1.0 |
+| Version local (pyproject.toml) | 2.1.0 |
+| Summary | REST API manager for Binance with automatic rate limiting and secure credential management. |
 | Autor | nand0san |
 | Licencia | MIT |
 | Python requerido | >= 3.11 |
+| Dependencias runtime | `requests`, `pycryptodome` |
 | Homepage | https://github.com/nand0san/panzer |
 | PyPI URL | https://pypi.org/project/panzer/ |
-| Versiones publicadas | 0.1.0, 1.0.0 - 1.0.11 (12 releases) |
 
 ### Flujo de publicacion
 
@@ -482,7 +517,7 @@ twine check dist/*
 twine upload dist/*
 ```
 
-No hay scripts de deploy automatizados. Hubo un `deploy.bat` (gitignored).
+No hay scripts de deploy automatizados.
 
 ---
 
@@ -497,13 +532,13 @@ No hay scripts de deploy automatizados. Hubo un `deploy.bat` (gitignored).
 
 - **Rama principal de desarrollo:** `master` (en `origin`).
 - **Rama publica:** `github` (en remote `github`). Solo para releases.
-- **Tags:** ninguno.
+- **Tags:** pendiente de crear (deben acompanar cada release en `github`).
 
 ### Convencion de ramas
 
 No hay ramas feature ni dev. Desarrollo directo en `master`.
 
-### Flujo de trabajo — desarrollo (origin)
+### Flujo de trabajo -- desarrollo (origin)
 
 ```bash
 # Sincronizar
@@ -517,7 +552,7 @@ git commit -m "descripcion concisa en imperativo"
 git push origin master
 ```
 
-### Flujo de publicacion - GitHub (IMPORTANTE)
+### Flujo de publicacion -- GitHub (IMPORTANTE)
 
 GitHub es **solo para publicacion**. El historial de `master` es privado y no
 debe exponerse en GitHub. La rama `github` es **huerfana** (sin historial
@@ -537,17 +572,21 @@ git checkout github
 git checkout master -- .
 
 # 4. Sanitizar antes de commit (ver checklist abajo)
-#    - Borrar CLAUDE.md si existe
-#    - Eliminar em-dashes, referencias a IA, Co-Authored-By, etc.
-git rm CLAUDE.md 2>/dev/null
+#    - Borrar archivos de agentes
+git rm -f CLAUDE.md AGENTS.md TODO.md 2>/dev/null
+git rm -rf .claude/ .codex/ 2>/dev/null
 #    - Verificar con grep (ver checklist)
 
-# 5. Commit y push
+# 5. Commit con tag de version
 git add -A
 git commit -m "vX.Y.Z: descripcion de la release"
-git push github github
+git tag vX.Y.Z
 
-# 6. Volver a master
+# 6. Push
+git push github github
+git push github vX.Y.Z
+
+# 7. Volver a master
 git checkout master
 ```
 
@@ -556,19 +595,27 @@ git checkout master
 Ejecutar desde la rama `github` antes de hacer commit:
 
 ```bash
-# 1. No debe existir CLAUDE.md
-test -f CLAUDE.md && echo "BORRAR CLAUDE.md" || echo "OK"
+# 1. No deben existir archivos de agentes
+for f in CLAUDE.md AGENTS.md TODO.md; do
+  test -f "$f" && echo "BORRAR $f" || echo "OK: $f"
+done
+test -d .claude && echo "BORRAR .claude/" || echo "OK: .claude/"
+test -d .codex && echo "BORRAR .codex/" || echo "OK: .codex/"
 
 # 2. Buscar referencias a IA/agentes en archivos publicables
-grep -rni "claude\|anthropic\|LLM\|Co-Authored" \
+grep -rni "claude\|anthropic\|LLM\|Co-Authored\|codex\|openai\|GPT" \
   --include="*.py" --include="*.md" --include="*.toml" --include="*.txt"
 # Resultado esperado: vacio. Si aparece algo, corregirlo.
 
 # 3. Buscar em-dashes (caracter marca de agua U+2014)
-grep -rn '—' --include="*.py" --include="*.md" --include="*.toml" --include="*.txt"
+grep -rn $'\xe2\x80\x94' --include="*.py" --include="*.md" --include="*.toml" --include="*.txt"
 # Resultado esperado: vacio. Reemplazar por '-' o '--' si aparece.
 
-# 4. Verificar autor del commit (no debe haber co-autores)
+# 4. Buscar otros caracteres watermark (U+200B zero-width space, U+00A0 nbsp)
+grep -rPn '[\x{200B}\x{00A0}]' --include="*.py" --include="*.md" --include="*.toml" 2>/dev/null
+# Resultado esperado: vacio.
+
+# 5. Verificar autor del commit (no debe haber co-autores)
 git log --format="%an <%ae>%n%b" -1
 # Solo debe aparecer nand0san. Sin lineas Co-Authored-By.
 ```
@@ -589,24 +636,29 @@ contributor no deseado en la pagina del repo:
 - **NUNCA** hacer push de ramas que no sean `github` al remote `github`.
 - **NUNCA** incluir `Co-Authored-By` ni menciones a herramientas de IA en
   commits publicos (vector de ataque por prompt injection).
-- **NUNCA** incluir `CLAUDE.md` ni archivos de configuracion de agentes en
-  el contenido publicado.
-- **NUNCA** usar em-dashes (U+2014 `—`) en archivos publicados. Usar `-` o
+- **NUNCA** incluir `CLAUDE.md`, `AGENTS.md`, `.claude/`, `.codex/` ni archivos
+  de configuracion de agentes en el contenido publicado.
+- **NUNCA** usar em-dashes (U+2014) en archivos publicados. Usar `-` o
   `--` en su lugar (el em-dash es una marca de agua detectable).
+- **NUNCA** usar caracteres zero-width space (U+200B) ni non-breaking space
+  (U+00A0). Son watermarks detectables.
 - Los mensajes de commit en `github` deben ser descriptivos de la release,
   no del desarrollo interno.
-- No incluir archivos sensibles (`secret*`, `*.key`, credenciales) - ya estan
+- Todo commit en `github` debe ir acompanado de un tag con la version,
+  sincronizado con la version de PyPI.
+- No incluir archivos sensibles (`secret*`, `*.key`, credenciales) -- ya estan
   en `.gitignore` pero verificar antes de publicar.
 
 ---
 
-## 11. Contributor playbook
+## 11. Agent playbook
 
 ### Checklist previa a cualquier cambio
 
 1. Leer `AGENTS.md` (este archivo).
-2. Verificar `git status` - no hay cambios sin commit que puedan perderse.
-3. Ejecutar `python -m panzer.exchanges.binance.public` para confirmar que el repo funciona.
+2. Verificar `git status` -- no hay cambios sin commit que puedan perderse.
+3. Ejecutar `ruff check panzer/` para confirmar estado limpio.
+4. Ejecutar `pytest tests/test_crypto.py tests/test_credentials.py tests/test_signer.py` para verificar tests unitarios.
 
 ### Patron de commits (master, desarrollo privado)
 
@@ -628,18 +680,18 @@ contributor no deseado en la pagina del repo:
 - Archivos creados o modificados (rutas).
 - Si se modifico codigo: justificacion breve del cambio.
 - Si hay riesgos o ambiguedades: mencionarlos explicitamente.
+- Comandos ejecutados para validar (lint, tests).
 
 ### Cosas que NO hacer
 
 - No instalar dependencias nuevas sin aprobacion.
 - No modificar `pyproject.toml` sin aprobacion.
-- No crear archivos en `logs/`, `examples/`, o `panzer/utils/` sin justificacion.
 - No hacer push sin aprobacion explicita.
 - No ejecutar notebooks (requieren red para llamar a Binance).
-- **NUNCA** hacer `git push github master` - expondria el historial privado.
+- No implementar retry automatico (ni en 429 ni en ningun otro caso).
+- **NUNCA** hacer `git push github master` -- expondria el historial privado.
 - **NUNCA** hacer push al remote `github` de ramas que no sean `github`.
-- **NUNCA** incluir referencias a herramientas de IA en contenido publicado
-  (commits, archivos, metadata). Ver seccion 10 para checklist completa.
+- **NUNCA** incluir referencias a herramientas de IA en contenido publicado.
 
 ---
 
@@ -649,16 +701,14 @@ Carencias detectadas que aun no se han implementado.
 
 ### Testing
 
-- **Resuelto parcialmente:** Existen tests empiricos en `tests/test_data_properties.py`
-  que verifican invariantes de datos contra la API real (189 tests, 3 mercados).
+- **Resuelto parcialmente:** 239 tests (189 empiricos + unitarios de crypto/credentials/signer).
 - **Pendiente:** Tests unitarios con mocks de `requests` para `errors.py`,
-  `rate_limit/`, `time_sync.py`.
-- **Config:** ya preparada en `pyproject.toml` (`[tool.pytest.ini_options]`).
+  `rate_limit/`, `time_sync.py`, `http/client.py`.
 
-### Type checking
+### Tags
 
-- **Gap:** `mypy` configurado en `pyproject.toml` pero no integrado aun.
-- **Propuesta:** Instalar `mypy` y resolver errores.
+- **Gap:** No hay tags git. Las releases deberian ir taggeadas.
+- **Propuesta:** Crear tags para v2.0.0 y v2.1.0 retroactivamente.
 
 ### CI
 
@@ -668,5 +718,5 @@ La validacion se ejecuta localmente antes de publicar.
 
 ### Documentacion
 
-- **Gap:** No hay Sphinx/MkDocs. Docstrings en proceso de migracion a NumPy style.
-- **Propuesta:** Sphinx + napoleon + autodoc cuando la migracion de docstrings avance.
+- **Gap:** No hay Sphinx/MkDocs. Docstrings migrados a NumPy style.
+- **Propuesta:** Sphinx + napoleon + autodoc cuando se quiera publicar docs online.

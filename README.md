@@ -44,11 +44,8 @@ Requires Python >= 3.11. Runtime dependencies: `requests`, `pycryptodome`.
 ```python
 from panzer import BinancePublicClient
 
-# Create a client (loads rate limits from /exchangeInfo automatically)
+# Create a client (loads rate limits and syncs clock automatically)
 client = BinancePublicClient(market="spot", safety_ratio=0.9)
-
-# Synchronize clock with Binance server (recommended before heavy usage)
-client.ensure_time_offset_ready(min_samples=3)
 
 # Public endpoints — weights are calculated automatically
 klines = client.klines("BTCUSDT", "1m", limit=500)
@@ -143,6 +140,37 @@ All wrapper methods share `timeout` (seconds, default 10) and return parsed JSON
 | `trades(symbol)` | Recent trades | `limit` (default 500) |
 | `agg_trades(symbol)` | Compressed/aggregate trades | `limit`, `from_id`, `start_time`, `end_time` |
 | `depth(symbol)` | Order book | `limit` (default 100; affects weight) |
+
+## Bulk / Parallel Requests
+
+Fetch data from multiple symbols simultaneously. Panzer pre-calculates
+weights, splits into batches that fit the rate limit window, and fires
+requests in parallel using a thread pool.
+
+```python
+symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT"]
+
+# All return dict[str, data] keyed by symbol
+all_trades = client.bulk_trades(symbols, limit=500, max_workers=10)
+all_klines = client.bulk_klines(symbols, "1h", limit=100, max_workers=10)
+all_books  = client.bulk_depth(symbols, limit=100, max_workers=10)
+all_agg    = client.bulk_agg_trades(symbols, limit=500, max_workers=10)
+
+# Generic: mix different endpoints in one parallel call
+results = client.parallel_get([
+    ("/api/v3/trades", {"symbol": "BTCUSDT", "limit": 100}),
+    ("/api/v3/klines", {"symbol": "ETHUSDT", "interval": "1h", "limit": 24}),
+    ("/api/v3/depth",  {"symbol": "SOLUSDT", "limit": 20}),
+], max_workers=5)
+```
+
+| Method | Description | Weight per call |
+|--------|-------------|-----------------|
+| `bulk_trades(symbols)` | Recent trades, N symbols | 25 |
+| `bulk_klines(symbols, interval)` | Candlesticks, N symbols | 2 |
+| `bulk_depth(symbols)` | Order books, N symbols | 5-250 |
+| `bulk_agg_trades(symbols)` | Aggregate trades, N symbols | 4 |
+| `parallel_get(jobs)` | Arbitrary mixed endpoints | varies |
 
 ## Authenticated Endpoints
 

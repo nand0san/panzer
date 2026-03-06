@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## v2.2.0 (2026-03-06)
+
+Parallel bulk requests and automatic clock synchronization.
+
+### New features
+
+- `parallel_get(jobs, max_workers)`: generic parallel GET with weight
+  pre-reservation and automatic batching across rate limit windows.
+- `bulk_trades(symbols)`: trades from multiple symbols in parallel.
+- `bulk_klines(symbols, interval)`: klines from multiple symbols in parallel.
+- `bulk_depth(symbols)`: order books from multiple symbols in parallel.
+- `bulk_agg_trades(symbols)`: aggregate trades from multiple symbols in parallel.
+- `auto_sync` parameter on `BinancePublicClient` and `BinanceClient`:
+  automatically synchronizes clock with Binance on client creation
+  (default True). Pass `auto_sync=False` to disable.
+- `effective_limit` and `remaining` properties on `BinanceFixedWindowLimiter`
+  for inspecting available weight before launching bulk requests.
+
+### Internal
+
+- Extracted `_execute_get()` and `_acquire()` private methods from `get()`
+  to support parallel execution without duplicate acquire calls.
+- Educational notebook `examples/05_parallel_bulk.ipynb`.
+
 ## v2.1.0 (2026-03-06)
 
 Authenticated endpoints, credential management, and educational notebooks.

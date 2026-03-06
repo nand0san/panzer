@@ -16,6 +16,7 @@ Características:
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from time import time as _time
 from typing import Any, Literal
@@ -106,6 +107,7 @@ class BinancePublicClient:
 
     market: MarketType = "spot"
     safety_ratio: float = 0.9
+    auto_sync: bool = True
     _limits: ExchangeRateLimits | None = field(default=None, init=False, repr=False)
     _limiter: BinanceFixedWindowLimiter | None = field(default=None, init=False, repr=False)
     _time_offset: TimeOffsetEstimator = field(default_factory=TimeOffsetEstimator, init=False, repr=False)
@@ -129,6 +131,13 @@ class BinancePublicClient:
             self._limits.request_weight.limit if self._limits.request_weight else "N/A",
             self.safety_ratio,
         )
+
+        if self.auto_sync:
+            self.ensure_time_offset_ready(min_samples=3)
+            self._log.info(
+                "Reloj sincronizado: offset=%.0f ms",
+                self._time_offset.current_offset() * 1000,
+            )
 
     # ==========================
     # Helpers internos
@@ -232,6 +241,48 @@ class BinancePublicClient:
     # API genérica
     # ==========================
 
+    def _execute_get(
+        self,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+        *,
+        weight: int = 1,
+        timeout: int = 10,
+    ) -> Any:
+        """
+        GET sin acquire -- usado internamente por ``get()`` y ``parallel_get()``.
+
+        Realiza la peticion HTTP, sincroniza headers del limiter y actualiza
+        el offset de reloj si procede.
+        """
+        data, _headers = binance_public_get(
+            base_url=self.base_url,
+            endpoint=endpoint,
+            params=params,
+            limiter=self.limiter,
+            weight=weight,
+            timeout=timeout,
+        )
+        self._maybe_update_time_offset_from_response(endpoint, data)
+
+        self._log.debug(
+            "GET %s params=%r weight=%s -> used_local=%s server_used=%s",
+            endpoint,
+            params,
+            weight,
+            self.limiter.used_local,
+            self.limiter.last_server_used,
+        )
+        return data
+
+    def _acquire(self, weight: int) -> None:
+        """Reserva peso teniendo en cuenta el offset de reloj si esta listo."""
+        if self._time_offset.is_ready():
+            now_server_sec = self._time_offset.to_server_ms() / 1000.0
+            self.limiter.acquire(weight=weight, now=now_server_sec)
+        else:
+            self.limiter.acquire(weight=weight)
+
     def get(
         self,
         endpoint: str,
@@ -263,35 +314,8 @@ class BinancePublicClient:
         if weight is None:
             weight = get_weight(self.market, endpoint, params)
 
-        if self._time_offset.is_ready():
-            now_server_sec = self._time_offset.to_server_ms() / 1000.0
-            self.limiter.acquire(weight=weight, now=now_server_sec)
-        else:
-            self.limiter.acquire(weight=weight)
-
-        data, headers = binance_public_get(
-            base_url=self.base_url,
-            endpoint=endpoint,
-            params=params,
-            limiter=self.limiter,
-            weight=weight,
-            timeout=timeout,
-        )
-
-        # Sincronizar offset de reloj si procede
-        self._maybe_update_time_offset_from_response(endpoint, data)
-
-        # Logging ligero
-        self._log.debug(
-            "GET %s params=%r weight=%s -> used_local=%s server_used=%s",
-            endpoint,
-            params,
-            weight,
-            self.limiter.used_local,
-            self.limiter.last_server_used,
-        )
-
-        return data
+        self._acquire(weight)
+        return self._execute_get(endpoint, params, weight=weight, timeout=timeout)
 
     # ==========================
     # Wrappers básicos: salud / tiempo
@@ -600,6 +624,263 @@ class BinancePublicClient:
             raise RuntimeError(f"Respuesta inesperada de /klines: {data!r}")
 
         return data  # type: ignore[return-value]
+
+    # ==========================
+    # API paralela
+    # ==========================
+
+    def parallel_get(
+        self,
+        jobs: list[tuple[str, dict[str, Any] | None]],
+        *,
+        max_workers: int = 10,
+        timeout: int = 10,
+    ) -> list[Any]:
+        """
+        Lanza multiples GET publicos en paralelo con pre-reserva de peso.
+
+        Calcula el peso total de todas las peticiones, las agrupa en lotes
+        que quepan en una ventana de rate limiting, reserva el peso de cada
+        lote de golpe y lanza las peticiones con un pool de threads.
+
+        Parameters
+        ----------
+        jobs : list[tuple[str, dict | None]]
+            Lista de (endpoint, params) a ejecutar.
+        max_workers : int
+            Numero maximo de threads concurrentes.
+        timeout : int
+            Timeout en segundos por peticion HTTP.
+
+        Returns
+        -------
+        list[Any]
+            Resultados en el mismo orden que *jobs*.
+
+        Raises
+        ------
+        BinanceAPIException
+            Si alguna peticion falla. Se relanza la primera excepcion
+            encontrada tras completar todas las peticiones del lote.
+        ValueError
+            Si el peso de un job individual excede el limite efectivo.
+        """
+        if not jobs:
+            return []
+
+        # Calcular pesos
+        weights = [get_weight(self.market, ep, p) for ep, p in jobs]
+        eff = self.limiter.effective_limit
+
+        # Partir en lotes que quepan en una ventana
+        batches: list[list[tuple[int, str, dict[str, Any] | None, int]]] = []
+        batch: list[tuple[int, str, dict[str, Any] | None, int]] = []
+        batch_weight = 0
+
+        for i, ((ep, params), w) in enumerate(zip(jobs, weights, strict=True)):
+            if w > eff:
+                raise ValueError(f"Peso del job {i} ({w}) excede el limite efectivo ({eff})")
+            if batch_weight + w > eff and batch:
+                batches.append(batch)
+                batch = []
+                batch_weight = 0
+            batch.append((i, ep, params, w))
+            batch_weight += w
+
+        if batch:
+            batches.append(batch)
+
+        # Ejecutar lotes
+        results: list[Any] = [None] * len(jobs)
+
+        for b in batches:
+            total_w = sum(w for _, _, _, w in b)
+            self._acquire(total_w)
+
+            workers = min(max_workers, len(b))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                future_to_idx = {
+                    pool.submit(
+                        self._execute_get,
+                        ep,
+                        params,
+                        weight=w,
+                        timeout=timeout,
+                    ): idx
+                    for idx, ep, params, w in b
+                }
+
+                errors: dict[int, Exception] = {}
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        results[idx] = future.result()
+                    except Exception as exc:
+                        errors[idx] = exc
+
+                if errors:
+                    first_idx = min(errors)
+                    raise errors[first_idx]
+
+        self._log.info(
+            "parallel_get: %d jobs, %d lotes, used_local=%s",
+            len(jobs),
+            len(batches),
+            self.limiter.used_local,
+        )
+        return results
+
+    # ==========================
+    # Wrappers bulk
+    # ==========================
+
+    def bulk_trades(
+        self,
+        symbols: list[str],
+        *,
+        limit: int = 500,
+        max_workers: int = 10,
+        timeout: int = 10,
+    ) -> dict[str, list[dict]]:
+        """
+        Obtiene trades recientes de multiples simbolos en paralelo.
+
+        Parameters
+        ----------
+        symbols : list[str]
+            Lista de pares de trading.
+        limit : int
+            Numero de trades por simbolo.
+        max_workers : int
+            Threads concurrentes.
+        timeout : int
+            Timeout por peticion.
+
+        Returns
+        -------
+        dict[str, list[dict]]
+            Diccionario ``{symbol: trades}``.
+        """
+        endpoint = self._endpoint("trades")
+        normed = [s.upper() for s in symbols]
+        jobs: list[tuple[str, dict[str, Any] | None]] = [(endpoint, {"symbol": s, "limit": limit}) for s in normed]
+        results = self.parallel_get(jobs, max_workers=max_workers, timeout=timeout)
+        return dict(zip(normed, results, strict=True))
+
+    def bulk_klines(
+        self,
+        symbols: list[str],
+        interval: str,
+        *,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 500,
+        max_workers: int = 10,
+        timeout: int = 10,
+    ) -> dict[str, list[list[object]]]:
+        """
+        Obtiene klines de multiples simbolos en paralelo.
+
+        Parameters
+        ----------
+        symbols : list[str]
+            Lista de pares de trading.
+        interval : str
+            Intervalo de vela (``"1m"``, ``"1h"``, ``"1d"``, etc.).
+        start_time : int | None
+            Marca de arranque en ms (opcional, compartida por todos).
+        end_time : int | None
+            Marca de fin en ms (opcional, compartida por todos).
+        limit : int
+            Maximo de velas por simbolo.
+        max_workers : int
+            Threads concurrentes.
+        timeout : int
+            Timeout por peticion.
+
+        Returns
+        -------
+        dict[str, list[list[object]]]
+            Diccionario ``{symbol: klines}``.
+        """
+        endpoint = self._endpoint("klines")
+        normed = [s.upper() for s in symbols]
+        jobs: list[tuple[str, dict[str, Any] | None]] = []
+        for s in normed:
+            p: dict[str, Any] = {"symbol": s, "interval": interval, "limit": limit}
+            if start_time is not None:
+                p["startTime"] = start_time
+            if end_time is not None:
+                p["endTime"] = end_time
+            jobs.append((endpoint, p))
+        results = self.parallel_get(jobs, max_workers=max_workers, timeout=timeout)
+        return dict(zip(normed, results, strict=True))
+
+    def bulk_depth(
+        self,
+        symbols: list[str],
+        *,
+        limit: int = 100,
+        max_workers: int = 10,
+        timeout: int = 10,
+    ) -> dict[str, dict]:
+        """
+        Obtiene order books de multiples simbolos en paralelo.
+
+        Parameters
+        ----------
+        symbols : list[str]
+            Lista de pares de trading.
+        limit : int
+            Profundidad de niveles.
+        max_workers : int
+            Threads concurrentes.
+        timeout : int
+            Timeout por peticion.
+
+        Returns
+        -------
+        dict[str, dict]
+            Diccionario ``{symbol: orderbook}``.
+        """
+        endpoint = self._endpoint("depth")
+        normed = [s.upper() for s in symbols]
+        jobs: list[tuple[str, dict[str, Any] | None]] = [(endpoint, {"symbol": s, "limit": limit}) for s in normed]
+        results = self.parallel_get(jobs, max_workers=max_workers, timeout=timeout)
+        return dict(zip(normed, results, strict=True))
+
+    def bulk_agg_trades(
+        self,
+        symbols: list[str],
+        *,
+        limit: int = 500,
+        max_workers: int = 10,
+        timeout: int = 10,
+    ) -> dict[str, list[dict]]:
+        """
+        Obtiene aggTrades de multiples simbolos en paralelo.
+
+        Parameters
+        ----------
+        symbols : list[str]
+            Lista de pares de trading.
+        limit : int
+            Maximo de registros por simbolo.
+        max_workers : int
+            Threads concurrentes.
+        timeout : int
+            Timeout por peticion.
+
+        Returns
+        -------
+        dict[str, list[dict]]
+            Diccionario ``{symbol: agg_trades}``.
+        """
+        endpoint = self._endpoint("agg_trades")
+        normed = [s.upper() for s in symbols]
+        jobs: list[tuple[str, dict[str, Any] | None]] = [(endpoint, {"symbol": s, "limit": limit}) for s in normed]
+        results = self.parallel_get(jobs, max_workers=max_workers, timeout=timeout)
+        return dict(zip(normed, results, strict=True))
 
 
 # ==========================

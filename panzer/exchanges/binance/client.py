@@ -38,6 +38,9 @@ class BinanceClient(BinancePublicClient):
     credentials : CredentialManager | None
         Gestor de credenciales. Si es None, crea uno por defecto
         (busca en ``~/.panzer_creds`` o solicita al usuario).
+    auto_sync : bool
+        Si True (por defecto), sincroniza el reloj con Binance al crear
+        el cliente. Pasar False para omitir la sincronizacion.
     """
 
     def __init__(
@@ -45,8 +48,9 @@ class BinanceClient(BinancePublicClient):
         market: MarketType = "spot",
         safety_ratio: float = 0.9,
         credentials: CredentialManager | None = None,
+        auto_sync: bool = True,
     ) -> None:
-        super().__init__(market=market, safety_ratio=safety_ratio)
+        super().__init__(market=market, safety_ratio=safety_ratio, auto_sync=auto_sync)
         self._signer = BinanceRequestSigner(credentials)
         self._auth_log = LogManager(
             name=f"panzer.binance.client.{self.market}",
@@ -129,8 +133,11 @@ class BinanceClient(BinancePublicClient):
 
         self._auth_log.debug(
             "%s %s weight=%s used_local=%s server_used=%s",
-            method, endpoint, weight,
-            self.limiter.used_local, self.limiter.last_server_used,
+            method,
+            endpoint,
+            weight,
+            self.limiter.used_local,
+            self.limiter.last_server_used,
         )
 
         return data

@@ -221,7 +221,11 @@ def binance_signed_request(
 
     _http_log.debug(
         "%s %s params=%d sign=%s weight=%s",
-        method, url, len(p), sign, weight,
+        method,
+        url,
+        len(p),
+        sign,
+        weight,
     )
 
     # Peticion HTTP
@@ -240,8 +244,11 @@ def binance_signed_request(
 
     _http_log.debug(
         "RESP %s %s status=%s used_local=%s server_used=%s",
-        method, url, resp.status_code,
-        limiter.used_local, limiter.last_server_used,
+        method,
+        url,
+        resp.status_code,
+        limiter.used_local,
+        limiter.last_server_used,
     )
 
     return data, resp.headers
