@@ -54,12 +54,14 @@ class BinanceFixedWindowLimiter:
         """
         Inicializa el limitador.
 
-        :param max_per_minute:
-            Límite máximo de REQUEST_WEIGHT por minuto para la IP. Debe
-            venir de los ExchangeRateLimits.request_weight.limit.
-        :param safety_ratio:
-            Factor de seguridad en [0, 1]. Un valor de 0.9 implica que
-            Panzer intentará no sobrepasar el 90 % del límite teórico
+        Parameters
+        ----------
+        max_per_minute : int
+            Limite maximo de REQUEST_WEIGHT por minuto para la IP. Debe
+            venir de ``ExchangeRateLimits.request_weight.limit``.
+        safety_ratio : float
+            Factor de seguridad en (0, 1]. Un valor de 0.9 implica que
+            Panzer intentara no sobrepasar el 90%% del limite teorico
             antes de dormir hasta la siguiente ventana.
         """
         if max_per_minute <= 0:
@@ -103,8 +105,15 @@ class BinanceFixedWindowLimiter:
         Calcula el identificador de la ventana actual en minutos
         (floor(epoch_seconds / 60)).
 
-        :param now: Epoch actual en segundos. Si es None, se usa time.time().
-        :return: Entero representando la ventana actual de un minuto.
+        Parameters
+        ----------
+        now : float | None
+            Epoch actual en segundos. Si es None, se usa ``time.time()``.
+
+        Returns
+        -------
+        int
+            Identificador de la ventana actual de un minuto.
         """
         if now is None:
             now = time.time()
@@ -112,10 +121,13 @@ class BinanceFixedWindowLimiter:
 
     def _rollover_if_needed(self, now: float | None = None) -> None:
         """
-        Comprueba si hemos cambiado de ventana (minuto). Si es así, resetea
+        Comprueba si hemos cambiado de ventana (minuto). Si es asi, resetea
         el contador local y el valor de servidor observado.
 
-        :param now: Epoch actual en segundos. Si es None, se usa time.time().
+        Parameters
+        ----------
+        now : float | None
+            Epoch actual en segundos. Si es None, se usa ``time.time()``.
         """
         bucket = self._current_bucket(now)
         if self._bucket_id is None or bucket != self._bucket_id:
@@ -154,12 +166,16 @@ class BinanceFixedWindowLimiter:
         Reserva capacidad de peso en la ventana actual.
 
         Si el consumo local + weight supera el umbral de seguridad
-        (max_per_minute * safety_ratio), este método duerme hasta el
+        (``max_per_minute * safety_ratio``), este metodo duerme hasta el
         inicio del siguiente minuto antes de continuar.
 
-        :param weight: Peso a consumir en esta operación (REQUEST_WEIGHT).
-        :param now: Epoch actual en segundos. Sólo se usa en tests; en
-                    producción se deja en None para usar time.time().
+        Parameters
+        ----------
+        weight : int
+            Peso a consumir en esta operacion (REQUEST_WEIGHT).
+        now : float | None
+            Epoch actual en segundos. Solo se usa en tests; en
+            produccion se deja en None para usar ``time.time()``.
         """
         if weight <= 0:
             raise ValueError("weight debe ser mayor que cero")

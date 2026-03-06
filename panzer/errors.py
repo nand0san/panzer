@@ -106,7 +106,10 @@ def _extract_json_safe(response: requests.Response) -> tuple[dict[str, Any] | An
     """
     Intenta parsear JSON de la respuesta. Si falla, devuelve (None, texto).
 
-    :return: (json_data, raw_text)
+    Returns
+    -------
+    tuple[dict[str, Any] | Any | None, str | None]
+        (json_data, raw_text).
     """
     try:
         data = response.json()
@@ -124,7 +127,7 @@ def _build_exception(response: requests.Response) -> BinanceAPIException:
         {"code": <int>, "msg": <str>}
     aunque vengan con status_code 200.
     """
-    method = response.request.method if response.request is not None else "GET"
+    method = (response.request.method if response.request is not None else None) or "GET"
     url = response.url or "UNKNOWN"
 
     json_data, raw_text = _extract_json_safe(response)
@@ -168,19 +171,31 @@ def handle_response(response: requests.Response) -> Any:
     Valida una respuesta de la API de Binance.
 
     Comportamiento:
-    - Si status_code no está en 2xx -> se levanta BinanceAPIException.
+
+    - Si status_code no esta en 2xx, levanta ``BinanceAPIException``.
     - Si status_code es 2xx:
         - Se intenta parsear JSON.
-        - Si el JSON es un dict con "code" < 0 (errores típicos de Binance),
-          se levanta BinanceAPIException.
-        - En caso contrario, se devuelve el JSON (o texto si no es JSON).
+        - Si el JSON es un dict con ``"code"`` < 0 (errores tipicos de
+          Binance), levanta ``BinanceAPIException``.
+        - En caso contrario, devuelve el JSON (o texto si no es JSON).
 
-    :param response: Objeto requests.Response devuelto por requests.
-    :return: JSON parseado (dict o list) o texto si no es JSON.
-    :raises BinanceAPIException: ante cualquier error interpretado.
+    Parameters
+    ----------
+    response : requests.Response
+        Objeto Response devuelto por requests.
+
+    Returns
+    -------
+    Any
+        JSON parseado (dict o list) o texto si no es JSON.
+
+    Raises
+    ------
+    BinanceAPIException
+        Ante cualquier error interpretado.
     """
     status = response.status_code
-    method = response.request.method if response.request is not None else "GET"
+    method = (response.request.method if response.request is not None else None) or "GET"
     url = response.url or "UNKNOWN"
 
     _log.debug("handle_response: %s %s -> %s", method, url, status)

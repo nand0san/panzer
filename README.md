@@ -1,15 +1,27 @@
 # Panzer
 
-Python library for managing Binance REST API connections with automatic rate limiting.
+Python library for managing Binance REST API connections with automatic rate
+limiting and secure credential management.
 
 ## Features
 
 - **Multi-market support**: Spot, USDT-M Futures, COIN-M Futures.
-- **Automatic rate limiting**: Fixed-window limiter synchronized with Binance's `X-MBX-USED-WEIGHT-1M` header. Sleeps before hitting limits instead of getting banned.
-- **Dynamic weight calculation**: Endpoint weights loaded from `weights.py` and adjusted by parameters (e.g., `depth` limit, `klines` limit).
-- **Clock synchronization**: Estimates server time offset via `/time` endpoint samples.
-- **Centralized error handling**: `BinanceAPIException` with parsed error codes and messages.
-- **Rotating file logs**: One log file per module in `logs/`, with configurable rotation.
+- **Automatic rate limiting**: Fixed-window limiter synchronized with Binance's
+  `X-MBX-USED-WEIGHT-1M` header. Sleeps before hitting limits instead of
+  getting banned.
+- **Signed requests**: HMAC-SHA256 signing for authenticated endpoints (orders,
+  account, trades). Supports GET, POST and DELETE.
+- **Secure credential storage**: AES-128-CBC encryption tied to the machine
+  identity. Credentials are stored encrypted on disk (`~/.panzer_creds`) and
+  decrypted only in memory when needed.
+- **Dynamic weight calculation**: Endpoint weights loaded from `weights.py` and
+  adjusted by parameters (e.g., `depth` limit, `klines` limit).
+- **Clock synchronization**: Estimates server time offset via `/time` endpoint
+  samples.
+- **Centralized error handling**: `BinanceAPIException` with parsed error codes
+  and messages.
+- **Rotating file logs**: One log file per module in `logs/`, with configurable
+  rotation.
 
 ## Installation
 
@@ -25,9 +37,9 @@ cd panzer
 pip install -e .
 ```
 
-Requires Python >= 3.11. Only runtime dependency: `requests`.
+Requires Python >= 3.11. Runtime dependencies: `requests`, `pycryptodome`.
 
-## Quick Start
+## Quick Start — Public Endpoints
 
 ```python
 from panzer import BinancePublicClient
@@ -38,11 +50,11 @@ client = BinancePublicClient(market="spot", safety_ratio=0.9)
 # Synchronize clock with Binance server (recommended before heavy usage)
 client.ensure_time_offset_ready(min_samples=3)
 
-# Public endpoints - weights are calculated automatically
+# Public endpoints — weights are calculated automatically
 klines = client.klines("BTCUSDT", "1m", limit=500)
 trades = client.trades("BTCUSDT", limit=100)
-book = client.depth("BTCUSDT", limit=100)
-info = client.exchange_info()
+book   = client.depth("BTCUSDT", limit=100)
+info   = client.exchange_info()
 ```
 
 ### Supported Markets
@@ -53,7 +65,72 @@ um   = BinancePublicClient(market="um")      # https://fapi.binance.com
 cm   = BinancePublicClient(market="cm")      # https://dapi.binance.com
 ```
 
-## Available Endpoints
+## Quick Start — Authenticated Endpoints
+
+`BinanceClient` extends `BinancePublicClient` with signed request support.
+It manages API keys securely through `CredentialManager`.
+
+```python
+from panzer import BinanceClient
+
+# First run: prompts for api_key and api_secret, encrypts and stores them
+# in ~/.panzer_creds. Subsequent runs load them automatically.
+client = BinanceClient(market="spot")
+
+# Account info
+account = client.account()
+print(account["balances"][:3])
+
+# Place an order
+order = client.new_order(
+    symbol="BTCUSDT",
+    side="BUY",
+    order_type="LIMIT",
+    quantity=0.001,
+    price=50000,
+    time_in_force="GTC",
+)
+
+# Query trades, open orders, cancel
+my_trades   = client.my_trades("BTCUSDT", limit=10)
+open_orders = client.open_orders("BTCUSDT")
+cancelled   = client.cancel_order("BTCUSDT", order_id=12345)
+all_orders  = client.all_orders("BTCUSDT", limit=100)
+```
+
+### Credential Management
+
+Credentials follow a three-layer lookup: **memory -> disk -> prompt**.
+
+```python
+from panzer import CredentialManager
+
+cm = CredentialManager()   # uses ~/.panzer_creds by default
+
+# Add credentials programmatically (auto-detects sensitive names)
+cm.add("api_key", "your_key_here")       # encrypted on disk
+cm.add("api_secret", "your_secret_here") # encrypted on disk
+cm.add("market", "spot")                 # stored in plain text
+
+# Retrieve
+key = cm.get("api_key", decrypt=True)    # decrypted value
+```
+
+Sensitive names (`api_key`, `api_secret`, `password`, `*_id`) are automatically
+detected and encrypted with AES-128-CBC. The encryption key is derived from the
+machine identity (home directory + CPU info), so credentials can only be
+decrypted on the machine where they were created. No master password is needed.
+
+The credential file `~/.panzer_creds` looks like:
+
+```
+# Archivo de credenciales de Panzer
+api_key = "U2FsdGVk..."
+api_secret = "Y3J5cHRv..."
+market = "spot"
+```
+
+## Public Endpoints
 
 All wrapper methods share `timeout` (seconds, default 10) and return parsed JSON.
 
@@ -61,20 +138,40 @@ All wrapper methods share `timeout` (seconds, default 10) and return parsed JSON
 |--------|-------------|----------------|
 | `ping()` | Test connectivity | |
 | `server_time()` | Server time (also updates clock sync) | |
-| `exchange_info(symbol=)` | Exchange metadata and rate limits | `symbol`: optional, single symbol filter |
+| `exchange_info(symbol=)` | Exchange metadata and rate limits | `symbol`: optional filter |
 | `klines(symbol, interval)` | Candlestick data | `limit` (default 500), `start_time`, `end_time` (ms) |
 | `trades(symbol)` | Recent trades | `limit` (default 500) |
 | `agg_trades(symbol)` | Compressed/aggregate trades | `limit`, `from_id`, `start_time`, `end_time` |
 | `depth(symbol)` | Order book | `limit` (default 100; affects weight) |
 
-### Using `get()` for any endpoint
+## Authenticated Endpoints
 
-The wrapper methods above cover the most common endpoints. For anything else
-(e.g., `historicalTrades`, `openInterest`, `ticker/24hr`), use `get()` directly
-with the endpoint path:
+Available via `BinanceClient`. All require valid API credentials.
+
+| Method | HTTP | Description | Key parameters |
+|--------|------|-------------|----------------|
+| `account()` | GET | Account info (balances, permissions) | `recv_window` |
+| `my_trades(symbol)` | GET | Own trade history | `limit`, `from_id` |
+| `new_order(symbol, side, order_type)` | POST | Place an order | `quantity`, `price`, `time_in_force`, `**extra` |
+| `cancel_order(symbol)` | DELETE | Cancel an order | `order_id` or `orig_client_order_id` |
+| `open_orders(symbol=)` | GET | Current open orders | `symbol` (optional) |
+| `all_orders(symbol)` | GET | All orders (open + closed) | `limit`, `order_id` |
+
+### Using `signed_request()` for any authenticated endpoint
 
 ```python
-# Spot 24h ticker - no wrapper needed
+# Generic signed request for endpoints without a wrapper
+data = client.signed_request(
+    "GET",
+    "/api/v3/myTrades",
+    params=[("symbol", "BTCUSDT"), ("limit", 10)],
+)
+```
+
+### Using `get()` for any public endpoint
+
+```python
+# Spot 24h ticker — no wrapper needed
 ticker = client.get("/api/v3/ticker/24hr", params={"symbol": "BTCUSDT"})
 
 # Futures mark price
@@ -92,7 +189,7 @@ data = client.get("/api/v3/depth", params={"symbol": "BTCUSDT", "limit": 5000}, 
 
 The limiter works **transparently**. When accumulated weight approaches the limit
 (controlled by `safety_ratio`), the client **sleeps** until the next minute window.
-This means your code may block for up to ~60 seconds - it won't raise an error,
+This means your code may block for up to ~60 seconds — it won't raise an error,
 it just waits.
 
 ```python
@@ -122,7 +219,7 @@ client.ensure_time_offset_ready(min_samples=3)
 server_ms = client.now_server_ms()
 ```
 
-If you skip this step, the limiter still works - it just uses your local clock,
+If you skip this step, the limiter still works — it just uses your local clock,
 which may be slightly off from Binance's window boundaries.
 
 ## Error Handling
@@ -133,13 +230,16 @@ from panzer.errors import BinanceAPIException
 try:
     client.klines("INVALID", "1m")
 except BinanceAPIException as e:
-    print(e.status_code)       # 400
-    print(e.error_payload.code) # -1121
-    print(e.error_payload.msg)  # "Invalid symbol."
+    print(e.status_code)        # 400
+    print(e.error_payload.code)  # -1121
+    print(e.error_payload.msg)   # "Invalid symbol."
 ```
 
 All API errors (HTTP 4xx/5xx and Binance-specific error codes) raise
 `BinanceAPIException` with the parsed error payload when available.
+
+The library does **not** retry failed requests automatically. If a request
+fails, the exception is raised immediately. Retry logic is left to the caller.
 
 ## Logging
 
@@ -148,9 +248,12 @@ Each module writes to its own rotating log file in `logs/`:
 ```
 logs/
   binance_public_spot.log
+  binance_client_spot.log
   binance_fixed_limiter.log
+  binance_signer.log
+  credentials.log
   errors.log
-  ...
+  http.log
 ```
 
 Logs also print to stdout. The `logs/` directory is created automatically
@@ -160,16 +263,20 @@ and is gitignored.
 
 ```
 panzer/
-  __init__.py                   # Exports BinancePublicClient
+  __init__.py                   # Exports BinanceClient, BinancePublicClient, CredentialManager
+  crypto.py                     # AesCipher (AES-128-CBC, machine-derived key)
+  credentials.py                # CredentialManager (memory -> disk -> prompt)
   errors.py                     # BinanceAPIException, handle_response
   log_manager.py                # LogManager (rotating file + stdout)
   time_sync.py                  # TimeOffsetEstimator
   exchanges/binance/
+    client.py                   # BinanceClient (authenticated, extends BinancePublicClient)
     config.py                   # Parses /exchangeInfo rate limits
-    public.py                   # BinancePublicClient (high-level)
+    public.py                   # BinancePublicClient (public endpoints only)
+    signer.py                   # BinanceRequestSigner (HMAC-SHA256)
     weights.py                  # Endpoint weight tables per market
   http/
-    client.py                   # Low-level HTTP + header sync
+    client.py                   # Low-level HTTP + header sync (public & signed)
   rate_limit/
     binance_fixed.py            # Fixed-window rate limiter
 ```

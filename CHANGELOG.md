@@ -1,15 +1,45 @@
 # CHANGELOG
 
-## v2.0.0 (unreleased)
+## v2.1.0 (2026-03-06)
+
+Authenticated endpoints, credential management, and educational notebooks.
+
+### New features
+
+- `BinanceClient`: authenticated client with HMAC-SHA256 signed requests.
+  Supports `account()`, `my_trades()`, `new_order()`, `cancel_order()`,
+  `open_orders()`, `all_orders()`, and generic `signed_request()`.
+- `CredentialManager`: 3-layer credential lookup (memory -> disk -> prompt).
+  Sensitive values encrypted with AES-128-CBC tied to machine identity.
+- `AesCipher`: machine-derived AES encryption (no master password).
+- `BinanceRequestSigner`: automatic timestamp + HMAC-SHA256 signature.
+- Auto clock sync in `signed_request()` when time offset not ready.
+- Educational notebooks in `examples/`: public endpoints, credentials,
+  authenticated trading, and rate limiting.
+
+### Bug fixes
+
+- Fixed `account()` using public endpoint resolver instead of private.
+- Fixed signed requests failing with -1021 when clock not synced.
+- Fixed mypy errors across all 17 source files (0 errors).
+- Fixed futures test failures due to real ID gaps in aggTrades/trades.
+
+### Internal
+
+- All docstrings migrated from Sphinx reST to NumPy style.
+- Replaced `assert` with `raise RuntimeError` in property guards.
+- Added pytest unit tests for crypto, credentials, and signer modules.
+
+## v2.0.0 (2026-03-05)
 
 Complete rewrite of the library. Breaking changes from v1.x.
 
 ### Breaking changes
 
-- Removed `panzer.limits.BinanceRateLimiter` - replaced by `BinanceFixedWindowLimiter`.
-- Removed `panzer.request` module (get/post) - replaced by `panzer.http.client`.
-- Removed `panzer.weights.WeightControl` - replaced by `panzer.exchanges.binance.weights`.
-- Removed `panzer.keys.CredentialManager` - signed requests not yet reimplemented.
+- Removed `panzer.limits.BinanceRateLimiter` -- replaced by `BinanceFixedWindowLimiter`.
+- Removed `panzer.request` module (get/post) -- replaced by `panzer.http.client`.
+- Removed `panzer.weights.WeightControl` -- replaced by `panzer.exchanges.binance.weights`.
+- Removed `panzer.keys.CredentialManager` -- reimplemented as `panzer.credentials`.
 - Single entry point: `from panzer import BinancePublicClient`.
 
 ### New features

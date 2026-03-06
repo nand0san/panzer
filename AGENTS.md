@@ -1,4 +1,4 @@
-# AGENTS.md -Manual de operacion del repositorio Panzer
+# AGENTS.md — Manual de operacion del repositorio Panzer
 
 ## 1. Purpose
 
@@ -6,7 +6,7 @@ Panzer es una libreria Python para gestionar conexiones REST a la API de Binance
 Maneja rate-limiting dinamico, credenciales cifradas, firmas de peticiones y
 sincronizacion de reloj con el servidor.
 
-Este documento es el manual de referencia para desarrolladores y contributors.
+Este documento es el manual de referencia para agentes LLM y desarrolladores humanos.
 
 ---
 
@@ -41,7 +41,7 @@ Este documento es el manual de referencia para desarrolladores y contributors.
 
 ### Tooling de desarrollo
 
-- **Linter/formatter:** `ruff` -configurado en `pyproject.toml` (`[tool.ruff]`).
+- **Linter/formatter:** `ruff` — configurado en `pyproject.toml` (`[tool.ruff]`).
 - **Type checker:** pendiente (mypy configurado en `pyproject.toml` pero no integrado aun).
 - **Test runner:** pendiente (pytest configurado en `pyproject.toml` pero sin tests `.py` aun).
 - **CI:** ninguno detectado (no hay `.github/`, `.gitlab-ci.yml`).
@@ -62,7 +62,7 @@ Este documento es el manual de referencia para desarrolladores y contributors.
 ### Advertencia .gitignore
 
 `.gitignore` excluye `*.md` con excepciones explicitas para `README.md`,
-`CHANGELOG.md`, `AGENTS.md` y `TODO.md` (ya configuradas).
+`CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md` y `TODO.md` (ya configuradas).
 
 ---
 
@@ -83,7 +83,7 @@ Este documento es el manual de referencia para desarrolladores y contributors.
 | Mensajes de log | **espanol** | `"Limite de seguridad alcanzado..."` |
 | Mensajes de excepcion | **espanol** | `"Mercado no soportado: ..."` |
 
-### 3.2 Docstrings -NumPy style (napoleon), Sphinx-ready
+### 3.2 Docstrings — NumPy style (napoleon), Sphinx-ready
 
 **Formato obligatorio** para funciones y clases publicas.
 
@@ -135,7 +135,7 @@ Reglas:
 - **Funciones puras cuando sea posible.** Separar I/O de logica.
 - **Errores:** excepciones explicitas con mensajes utiles en espanol. Jerarquia: `BinanceAPIException` como base.
 - **Dataclasses** para modelos de datos (`@dataclass`): `RateLimit`, `ExchangeRateLimits`, `BinanceAPIErrorPayload`.
-- **Logging:** patron existente -un `LogManager` por modulo al inicio del fichero:
+- **Logging:** patron existente — un `LogManager` por modulo al inicio del fichero:
   ```python
   _log = LogManager(
       name="panzer.<modulo>",
@@ -214,6 +214,7 @@ panzer/                         # raiz del repo
 ├── pyproject.toml
 ├── requirements.txt
 ├── AGENTS.md
+├── CLAUDE.md
 ├── TODO.md
 ├── CHANGELOG.md
 ├── LICENSE
@@ -312,14 +313,14 @@ Antes de mergear cualquier cambio:
 
 ### Convenciones de docstrings para futura generacion automatica
 
-- Formato: NumPy style (napoleon) -compatible con `sphinx.ext.napoleon`.
+- Formato: NumPy style (napoleon) — compatible con `sphinx.ext.napoleon`.
 - `from __future__ import annotations` en todos los modulos.
 - Los docstrings de modulo describen el proposito y las caracteristicas principales.
 - Los docstrings de clase describen el contrato, no la implementacion.
 
 ---
 
-## 8. Binance rate limiting -modelo de referencia
+## 8. Binance rate limiting — modelo de referencia
 
 Fuente: documentacion oficial de Binance (developers.binance.com), marzo 2026.
 
@@ -364,8 +365,8 @@ y pueden cambiar sin previo aviso.
 | Mercado | REQUEST_WEIGHT/1M | RAW_REQUESTS/5M | ORDERS/10S | ORDERS/1D |
 |---|---|---|---|---|
 | Spot | 6000 | 61000 | 100 | 200000 |
-| Futures UM | ~2400 | -| -| -|
-| Futures CM | ~2400 | -| -| -|
+| Futures UM | ~2400 | — | — | — |
+| Futures CM | ~2400 | — | — | — |
 
 > Los valores exactos de futures se obtienen de `/fapi/v1/exchangeInfo` y
 > `/dapi/v1/exchangeInfo`. Panzer los carga dinamicamente.
@@ -414,7 +415,7 @@ Consultar ese archivo para la referencia completa con funciones de peso variable
 | ticker/bookTicker | 2 / 5 | con symbol=2, sin symbol=5 |
 | openInterest | 1 | |
 
-**Futures CM (/dapi/v1/)** -misma estructura que UM con paths `/dapi/`.
+**Futures CM (/dapi/v1/)** — misma estructura que UM con paths `/dapi/`.
 
 ### 8.6 Arquitectura de rate limiting en Panzer
 
@@ -502,7 +503,7 @@ No hay scripts de deploy automatizados. Hubo un `deploy.bat` (gitignored).
 
 No hay ramas feature ni dev. Desarrollo directo en `master`.
 
-### Flujo de trabajo -desarrollo (origin)
+### Flujo de trabajo — desarrollo (origin)
 
 ```bash
 # Sincronizar
@@ -516,30 +517,85 @@ git commit -m "descripcion concisa en imperativo"
 git push origin master
 ```
 
-### Flujo de publicacion -GitHub (IMPORTANTE)
+### Flujo de publicacion - GitHub (IMPORTANTE)
 
 GitHub es **solo para publicacion**. El historial de `master` es privado y no
-debe exponerse en GitHub. Para publicar:
+debe exponerse en GitHub. La rama `github` es **huerfana** (sin historial
+compartido con `master`) para evitar fugas de metadatos.
+
+#### Procedimiento paso a paso
 
 ```bash
-# Crear un commit squash con todos los cambios desde la ultima publicacion
+# 1. Partir de master con todo commiteado
+git checkout master
+git status  # debe estar limpio
+
+# 2. Cambiar a la rama github (huerfana)
 git checkout github
-git merge --squash master
-git commit -m "v2.x.x: descripcion de la release"
+
+# 3. Traer el contenido actual de master sin historial
+git checkout master -- .
+
+# 4. Sanitizar antes de commit (ver checklist abajo)
+#    - Borrar CLAUDE.md si existe
+#    - Eliminar em-dashes, referencias a IA, Co-Authored-By, etc.
+git rm CLAUDE.md 2>/dev/null
+#    - Verificar con grep (ver checklist)
+
+# 5. Commit y push
+git add -A
+git commit -m "vX.Y.Z: descripcion de la release"
 git push github github
 
-# Volver a master
+# 6. Volver a master
 git checkout master
 ```
 
-**Reglas estrictas:**
+#### Checklist de sanitizacion (OBLIGATORIA antes de cada push a GitHub)
+
+Ejecutar desde la rama `github` antes de hacer commit:
+
+```bash
+# 1. No debe existir CLAUDE.md
+test -f CLAUDE.md && echo "BORRAR CLAUDE.md" || echo "OK"
+
+# 2. Buscar referencias a IA/agentes en archivos publicables
+grep -rni "claude\|anthropic\|LLM\|Co-Authored" \
+  --include="*.py" --include="*.md" --include="*.toml" --include="*.txt"
+# Resultado esperado: vacio. Si aparece algo, corregirlo.
+
+# 3. Buscar em-dashes (caracter marca de agua U+2014)
+grep -rn '—' --include="*.py" --include="*.md" --include="*.toml" --include="*.txt"
+# Resultado esperado: vacio. Reemplazar por '-' o '--' si aparece.
+
+# 4. Verificar autor del commit (no debe haber co-autores)
+git log --format="%an <%ae>%n%b" -1
+# Solo debe aparecer nand0san. Sin lineas Co-Authored-By.
+```
+
+#### Si GitHub cachea contributors no deseados
+
+GitHub cachea objetos git incluso despues de force-push. Si aparece un
+contributor no deseado en la pagina del repo:
+
+1. Borrar el repo en GitHub (Settings > Delete this repository).
+2. Recrear el repo vacio (sin README, sin .gitignore, sin license).
+3. Push de la rama `github` limpia: `git push github github`.
+4. Configurar la default branch a `github` en Settings.
+
+#### Reglas estrictas
 
 - **NUNCA** hacer `git push github master` (expondria historial privado).
 - **NUNCA** hacer push de ramas que no sean `github` al remote `github`.
-- Siempre usar `--squash` para colapsar el historial en un solo commit.
+- **NUNCA** incluir `Co-Authored-By` ni menciones a herramientas de IA en
+  commits publicos (vector de ataque por prompt injection).
+- **NUNCA** incluir `CLAUDE.md` ni archivos de configuracion de agentes en
+  el contenido publicado.
+- **NUNCA** usar em-dashes (U+2014 `—`) en archivos publicados. Usar `-` o
+  `--` en su lugar (el em-dash es una marca de agua detectable).
 - Los mensajes de commit en `github` deben ser descriptivos de la release,
   no del desarrollo interno.
-- No incluir archivos sensibles (`secret*`, `*.key`, credenciales) -ya estan
+- No incluir archivos sensibles (`secret*`, `*.key`, credenciales) - ya estan
   en `.gitignore` pero verificar antes de publicar.
 
 ---
@@ -549,14 +605,16 @@ git checkout master
 ### Checklist previa a cualquier cambio
 
 1. Leer `AGENTS.md` (este archivo).
-2. Verificar `git status` -no hay cambios sin commit que puedan perderse.
-4. Ejecutar `python -m panzer.exchanges.binance.public` para confirmar que el repo funciona.
+2. Verificar `git status` - no hay cambios sin commit que puedan perderse.
+3. Ejecutar `python -m panzer.exchanges.binance.public` para confirmar que el repo funciona.
 
-### Patron de commits
+### Patron de commits (master, desarrollo privado)
 
 - Mensajes cortos, imperativos, en espanol o ingles segun el cambio.
 - Scope opcional entre parentesis: `fix(rate_limit): corregir rollover en cambio de ventana`.
 - Una linea de resumen, linea en blanco, cuerpo opcional.
+- **NUNCA** incluir `Co-Authored-By` en ningun commit (ni `master` ni `github`).
+  Ningun agente o herramienta debe figurar como colaborador.
 
 ### Cuando tocar docs vs codigo
 
@@ -577,9 +635,11 @@ git checkout master
 - No modificar `pyproject.toml` sin aprobacion.
 - No crear archivos en `logs/`, `examples/`, o `panzer/utils/` sin justificacion.
 - No hacer push sin aprobacion explicita.
-- **NUNCA** hacer `git push github master` -expondria el historial privado.
-- **NUNCA** hacer push al remote `github` de ramas que no sean `github`.
 - No ejecutar notebooks (requieren red para llamar a Binance).
+- **NUNCA** hacer `git push github master` - expondria el historial privado.
+- **NUNCA** hacer push al remote `github` de ramas que no sean `github`.
+- **NUNCA** incluir referencias a herramientas de IA en contenido publicado
+  (commits, archivos, metadata). Ver seccion 10 para checklist completa.
 
 ---
 
@@ -589,21 +649,22 @@ Carencias detectadas que aun no se han implementado.
 
 ### Testing
 
-- **Gap:** No hay tests automatizados (pytest/unittest).
-- **Propuesta:** Anadir `pytest` + `pytest-mock`. Crear `tests/test_errors.py`,
-  `tests/test_rate_limit.py`, `tests/test_time_sync.py` con mocks de `requests`.
-- **Cobertura:** Anadir `pytest-cov` y objetivo minimo 80%.
+- **Resuelto parcialmente:** Existen tests empiricos en `tests/test_data_properties.py`
+  que verifican invariantes de datos contra la API real (189 tests, 3 mercados).
+- **Pendiente:** Tests unitarios con mocks de `requests` para `errors.py`,
+  `rate_limit/`, `time_sync.py`.
 - **Config:** ya preparada en `pyproject.toml` (`[tool.pytest.ini_options]`).
 
 ### Type checking
 
 - **Gap:** `mypy` configurado en `pyproject.toml` pero no integrado aun.
-- **Propuesta:** Instalar `mypy`, resolver errores y anadir al CI.
+- **Propuesta:** Instalar `mypy` y resolver errores.
 
 ### CI
 
-- **Gap:** No hay pipeline CI.
-- **Propuesta:** GitHub Actions basico (ruff + pytest) en `.github/workflows/ci.yml`.
+**No aplica.** GitHub es solo un escaparate de codigo (ver seccion 10).
+No se usara GitHub Actions ni ningun pipeline CI en el remote `github`.
+La validacion se ejecuta localmente antes de publicar.
 
 ### Documentacion
 
