@@ -105,14 +105,13 @@ class BinanceClient(BinancePublicClient):
             params_dict = dict(params) if params else None
             weight = get_weight(self.market, endpoint, params_dict)
 
-        # Calcular offset del servidor en ms
-        offset_ms = 0
-        if self.time_offset.is_ready():
-            offset_ms = int(self.time_offset.current_offset() * 1000)
-            now_server_sec = self.time_offset.to_server_ms() / 1000.0
-            self.limiter.acquire(weight=weight, now=now_server_sec)
-        else:
-            self.limiter.acquire(weight=weight)
+        # Sincronizar reloj si no esta listo (critico para la firma)
+        if not self.time_offset.is_ready():
+            self.ensure_time_offset_ready(min_samples=3)
+
+        offset_ms = int(self.time_offset.current_offset() * 1000)
+        now_server_sec = self.time_offset.to_server_ms() / 1000.0
+        self.limiter.acquire(weight=weight, now=now_server_sec)
 
         data, headers = binance_signed_request(
             method=method,
