@@ -613,7 +613,8 @@ contributor no deseado en la pagina del repo:
 - Mensajes cortos, imperativos, en espanol o ingles segun el cambio.
 - Scope opcional entre parentesis: `fix(rate_limit): corregir rollover en cambio de ventana`.
 - Una linea de resumen, linea en blanco, cuerpo opcional.
-- `Co-Authored-By` permitido en `master` (es privado). Prohibido en `github`.
+- **NUNCA** incluir `Co-Authored-By` en ningun commit (ni `master` ni `github`).
+  Ningun agente o herramienta debe figurar como colaborador.
 
 ### Cuando tocar docs vs codigo
 
@@ -648,21 +649,22 @@ Carencias detectadas que aun no se han implementado.
 
 ### Testing
 
-- **Gap:** No hay tests automatizados (pytest/unittest).
-- **Propuesta:** Anadir `pytest` + `pytest-mock`. Crear `tests/test_errors.py`,
-  `tests/test_rate_limit.py`, `tests/test_time_sync.py` con mocks de `requests`.
-- **Cobertura:** Anadir `pytest-cov` y objetivo minimo 80%.
+- **Resuelto parcialmente:** Existen tests empiricos en `tests/test_data_properties.py`
+  que verifican invariantes de datos contra la API real (189 tests, 3 mercados).
+- **Pendiente:** Tests unitarios con mocks de `requests` para `errors.py`,
+  `rate_limit/`, `time_sync.py`.
 - **Config:** ya preparada en `pyproject.toml` (`[tool.pytest.ini_options]`).
 
 ### Type checking
 
 - **Gap:** `mypy` configurado en `pyproject.toml` pero no integrado aun.
-- **Propuesta:** Instalar `mypy`, resolver errores y anadir al CI.
+- **Propuesta:** Instalar `mypy` y resolver errores.
 
 ### CI
 
-- **Gap:** No hay pipeline CI.
-- **Propuesta:** GitHub Actions basico (ruff + pytest) en `.github/workflows/ci.yml`.
+**No aplica.** GitHub es solo un escaparate de codigo (ver seccion 10).
+No se usara GitHub Actions ni ningun pipeline CI en el remote `github`.
+La validacion se ejecuta localmente antes de publicar.
 
 ### Documentacion
 

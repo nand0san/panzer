@@ -127,6 +127,7 @@ conf.py
 deploy.bat
 # tests/ # excluido en setup.py del módulo
 tests/keys.ipynb
-!AGENTS.md
-!CLAUDE.md
-!TODO.md
+AGENTS.md
+CLAUDE.md
+TODO.md
+!tests/DATA_PROPERTIES.md

@@ -1,10 +1,10 @@
 # panzer/http/__init__.py
 """
-Cliente HTTP de bajo nivel para APIs públicas (Binance, etc.).
+Cliente HTTP de bajo nivel para la API de Binance.
 
-Por ahora expone un helper específico para peticiones públicas a Binance.
+Expone helpers para peticiones publicas y autenticadas.
 """
 
-from .client import binance_public_get
+from .client import binance_public_get, binance_signed_request
 
-__all__ = ["binance_public_get"]
+__all__ = ["binance_public_get", "binance_signed_request"]

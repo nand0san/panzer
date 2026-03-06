@@ -1,16 +1,16 @@
 # panzer/http/client.py
 """
-Cliente HTTP de bajo nivel para la API pública de Binance.
+Cliente HTTP de bajo nivel para la API de Binance.
 
-Objetivos:
-- Sólo peticiones públicas (sin API keys ni firmas).
-- Integración con:
-    - BinanceFixedWindowLimiter (control de REQUEST_WEIGHT).
-    - LogManager (logs a fichero + pantalla).
-    - handle_response() para levantar BinanceAPIException cuando proceda.
+Soporta peticiones publicas (sin firma) y autenticadas (con HMAC-SHA256).
 
-Este módulo NO conoce aún nada del “cliente de alto nivel” (BinancePublicClient);
-es una capa fina sobre requests + rate limiting + manejo de errores.
+Integracion con:
+- BinanceFixedWindowLimiter (control de REQUEST_WEIGHT).
+- BinanceRequestSigner (firma HMAC para endpoints privados).
+- LogManager (logs a fichero + pantalla).
+- handle_response() para levantar BinanceAPIException cuando proceda.
+
+Este modulo es una capa fina sobre requests + rate limiting + manejo de errores.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ def binance_public_get(
     """
     Realiza una petición GET pública contra Binance.
 
-    No hace acquire internamente — el caller debe llamar a
+    No hace acquire internamente -- el caller debe llamar a
     limiter.acquire(weight) antes si lo necesita.
 
     Flujo:
@@ -117,6 +117,114 @@ def binance_public_get(
         resp.status_code,
         limiter.used_local,
         limiter.last_server_used,
+    )
+
+    return data, resp.headers
+
+
+# ==========================
+# Peticiones firmadas (autenticadas)
+# ==========================
+
+
+def binance_signed_request(
+    method: str,
+    base_url: str,
+    endpoint: str,
+    params: list[tuple[str, str | int]] | None,
+    signer: object,
+    limiter: BinanceFixedWindowLimiter,
+    *,
+    sign: bool = True,
+    recv_window: int | None = None,
+    server_time_offset_ms: int = 0,
+    weight: int = 1,
+    timeout: int = 10,
+) -> tuple[Any, Mapping[str, str]]:
+    """
+    Realiza una peticion firmada (GET/POST/DELETE) contra Binance.
+
+    Parameters
+    ----------
+    method : str
+        Metodo HTTP: ``"GET"``, ``"POST"`` o ``"DELETE"``.
+    base_url : str
+        URL base del mercado.
+    endpoint : str
+        Path del endpoint (ej: ``"/api/v3/account"``).
+    params : list[tuple] | None
+        Pares (clave, valor) de la peticion.
+    signer : BinanceRequestSigner
+        Instancia del firmante (inyecta API key y firma HMAC).
+    limiter : BinanceFixedWindowLimiter
+        Rate limiter para sincronizar pesos.
+    sign : bool
+        Si True, firma completa (timestamp + HMAC). Si False, solo
+        anade API key al header (semi-signed, para USER_STREAM/MARKET_DATA).
+    recv_window : int | None
+        Ventana de validez en ms. Si se proporciona, se anade a los params.
+    server_time_offset_ms : int
+        Desfase servidor-local en ms para el timestamp.
+    weight : int
+        Peso estimado de la operacion.
+    timeout : int
+        Timeout en segundos para la peticion HTTP.
+
+    Returns
+    -------
+    tuple[Any, Mapping[str, str]]
+        (data, headers) -- respuesta parseada y cabeceras HTTP.
+
+    Raises
+    ------
+    BinanceAPIException
+        Ante errores de la API.
+    requests.RequestException
+        Ante errores de red.
+    ValueError
+        Si el metodo HTTP no es valido.
+    """
+    method = method.strip().upper()
+    if method not in ("GET", "POST", "DELETE"):
+        raise ValueError(f"Metodo HTTP no soportado: {method!r}")
+
+    url = _build_url(base_url, endpoint)
+    p = list(params) if params else []
+
+    if recv_window is not None:
+        p.append(("recvWindow", recv_window))
+
+    # Firma o semi-firma
+    headers = signer.headers_with_api_key()  # type: ignore[attr-defined]
+    if sign:
+        p = signer.sign_params(  # type: ignore[attr-defined]
+            p,
+            server_time_offset_ms=server_time_offset_ms,
+        )
+
+    _http_log.debug(
+        "%s %s params=%d sign=%s weight=%s",
+        method, url, len(p), sign, weight,
+    )
+
+    # Peticion HTTP
+    if method == "GET":
+        resp = requests.get(url, params=p, headers=headers, timeout=timeout)
+    elif method == "POST":
+        resp = requests.post(url, params=p, headers=headers, timeout=timeout)
+    else:
+        resp = requests.delete(url, params=p, headers=headers, timeout=timeout)
+
+    # Sincronizar rate limiter
+    limiter.update_from_headers(resp.headers)
+
+    # Parseo y manejo de errores
+    data = handle_response(resp)
+
+    _http_log.debug(
+        "RESP %s %s status=%s used_local=%s server_used=%s",
+        method, url, resp.status_code,
+        limiter.used_local, limiter.last_server_used,
     )
 
     return data, resp.headers
