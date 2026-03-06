@@ -43,11 +43,19 @@ class TimeOffsetEstimator:
 
     def add_sample(self, server_time_ms: int, local_now: float | None = None) -> float:
         """
-        Añade una muestra nueva y devuelve el offset estimado actual.
+        Anade una muestra nueva y devuelve el offset estimado actual.
 
-        :param server_time_ms: Tiempo de servidor en milisegundos (Binance).
-        :param local_now: Epoch local en segundos. Si es None, se usa time().
-        :return: Offset estimado en segundos (mediana de las muestras).
+        Parameters
+        ----------
+        server_time_ms : int
+            Tiempo de servidor en milisegundos (Binance).
+        local_now : float | None
+            Epoch local en segundos. Si es None, se usa ``time()``.
+
+        Returns
+        -------
+        float
+            Offset estimado en segundos (mediana de las muestras).
         """
         if local_now is None:
             local_now = time()
@@ -96,8 +104,15 @@ class TimeOffsetEstimator:
         Convierte un 'ahora local' a 'ahora servidor' en milisegundos,
         usando el offset estimado.
 
-        :param local_now: Epoch local en segundos. Si es None, se usa time().
-        :return: Epoch server-side estimado en milisegundos.
+        Parameters
+        ----------
+        local_now : float | None
+            Epoch local en segundos. Si es None, se usa ``time()``.
+
+        Returns
+        -------
+        int
+            Epoch server-side estimado en milisegundos.
         """
         if local_now is None:
             local_now = time()

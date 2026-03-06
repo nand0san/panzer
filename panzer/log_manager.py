@@ -51,19 +51,21 @@ class LogManager:
         backup_count: int = 5,
     ) -> None:
         """
-        :param name:
-            Nombre interno del logger (logging.getLogger(name)).
-        :param folder:
-            Carpeta donde se guardará el fichero de log.
-        :param filename:
-            Nombre del fichero de log. Si es None -> f"{name}.log"
+        Parameters
+        ----------
+        name : str
+            Nombre interno del logger (``logging.getLogger(name)``).
+        folder : str
+            Carpeta donde se guardara el fichero de log.
+        filename : str | None
+            Nombre del fichero de log. Si es None, se usa ``f"{name}.log"``
             (sustituyendo puntos por guiones bajos).
-        :param level:
-            Nivel de logging inicial: "DEBUG", "INFO", etc.
-        :param max_log_size_mb:
-            Tamaño máximo del fichero de log antes de rotar.
-        :param backup_count:
-            Número de ficheros de backup a conservar.
+        level : str
+            Nivel de logging inicial: ``"DEBUG"``, ``"INFO"``, etc.
+        max_log_size_mb : int
+            Tamano maximo del fichero de log antes de rotar.
+        backup_count : int
+            Numero de ficheros de backup a conservar.
         """
         self.name = name
 

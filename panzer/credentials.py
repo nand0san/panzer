@@ -122,10 +122,10 @@ class CredentialManager:
             return self._cipher.decrypt(value) if decrypt and _is_sensitive(name) else value
 
         # 2. Disco
-        value = self._read_from_file(name)
-        if value is not None:
-            self._cache[name] = value
-            return self._cipher.decrypt(value) if decrypt and _is_sensitive(name) else value
+        from_file = self._read_from_file(name)
+        if from_file is not None:
+            self._cache[name] = from_file
+            return self._cipher.decrypt(from_file) if decrypt and _is_sensitive(name) else from_file
 
         # 3. Prompt
         _log.info("Credencial '%s' no encontrada. Solicitando al usuario.", name)

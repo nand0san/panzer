@@ -52,11 +52,19 @@ _http_log = LogManager(
 
 def _build_url(base_url: str, endpoint: str) -> str:
     """
-    Construye la URL absoluta para la petición.
+    Construye la URL absoluta para la peticion.
 
-    :param base_url: URL base (sin endpoint), por ejemplo BINANCE_SPOT_BASE_URL.
-    :param endpoint: Path del endpoint, por ejemplo "/api/v3/time".
-    :return: URL absoluta.
+    Parameters
+    ----------
+    base_url : str
+        URL base (sin endpoint), por ejemplo BINANCE_SPOT_BASE_URL.
+    endpoint : str
+        Path del endpoint, por ejemplo ``"/api/v3/time"``.
+
+    Returns
+    -------
+    str
+        URL absoluta.
     """
     return base_url.rstrip("/") + "/" + endpoint.lstrip("/")
 
@@ -75,28 +83,37 @@ def binance_public_get(
     timeout: int = 10,
 ) -> tuple[Any, Mapping[str, str]]:
     """
-    Realiza una petición GET pública contra Binance.
+    Realiza una peticion GET publica contra Binance.
 
     No hace acquire internamente -- el caller debe llamar a
-    limiter.acquire(weight) antes si lo necesita.
+    ``limiter.acquire(weight)`` antes si lo necesita.
 
-    Flujo:
-    - GET con requests, con logs de entrada/salida.
-    - `limiter.update_from_headers(resp.headers)` para sincronizar
-      X-MBX-USED-WEIGHT-1M.
-    - `handle_response(resp)` para levantar BinanceAPIException si procede.
+    Parameters
+    ----------
+    base_url : str
+        URL base (spot / futures).
+    endpoint : str
+        Path del endpoint (ej: ``"/api/v3/time"``).
+    params : dict[str, Any] | None
+        Parametros de query (o None).
+    limiter : BinanceFixedWindowLimiter
+        Instancia del rate limiter.
+    weight : int
+        Peso estimado de la operacion (REQUEST_WEIGHT).
+    timeout : int
+        Timeout en segundos para requests.
 
-    :param base_url: URL base (spot / futures).
-    :param endpoint: Path del endpoint (ej: "/api/v3/time").
-    :param params: Diccionario de parámetros de query (o None).
-    :param limiter: Instancia de BinanceFixedWindowLimiter.
-    :param weight: Peso estimado de la operación (REQUEST_WEIGHT).
-    :param timeout: Timeout en segundos para requests.
-    :return: Tupla (data, headers):
-             - data: JSON parseado (dict/list) o texto.
-             - headers: cabeceras HTTP de la respuesta.
-    :raises BinanceAPIException: en caso de error interpretado.
-    :raises requests.RequestException: ante errores de red.
+    Returns
+    -------
+    tuple[Any, Mapping[str, str]]
+        (data, headers) -- JSON parseado y cabeceras HTTP.
+
+    Raises
+    ------
+    BinanceAPIException
+        En caso de error interpretado.
+    requests.RequestException
+        Ante errores de red.
     """
     url = _build_url(base_url, endpoint)
 

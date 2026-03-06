@@ -160,7 +160,8 @@ class BinancePublicClient:
 
         Útil para inspeccionar métricas (used_local, last_server_used).
         """
-        assert self._limiter is not None, "Limiter no inicializado"
+        if self._limiter is None:
+            raise RuntimeError("Limiter no inicializado")
         return self._limiter
 
     @property
@@ -205,11 +206,22 @@ class BinancePublicClient:
 
     def _endpoint(self, name: str) -> str:
         """
-        Resuelve el path del endpoint en función del mercado.
+        Resuelve el path del endpoint en funcion del mercado.
 
-        :param name: Nombre lógico del endpoint (ping, time, klines, etc.).
-        :return: Path a usar en la petición (ej. "/api/v3/klines").
-        :raises KeyError: Si el endpoint no está definido para el mercado.
+        Parameters
+        ----------
+        name : str
+            Nombre logico del endpoint (ping, time, klines, etc.).
+
+        Returns
+        -------
+        str
+            Path a usar en la peticion (ej. ``"/api/v3/klines"``).
+
+        Raises
+        ------
+        KeyError
+            Si el endpoint no esta definido para el mercado.
         """
         try:
             return _ENDPOINTS[self.market][name]
@@ -229,14 +241,24 @@ class BinancePublicClient:
         timeout: int = 10,
     ) -> Any:
         """
-        Lanza un GET público contra Binance con rate limiting y manejo de errores.
+        Lanza un GET publico contra Binance con rate limiting y manejo de errores.
 
-        :param endpoint: Path de la API (ej: "/api/v3/time", "/fapi/v1/depth").
-        :param params: Parámetros de query (o None).
-        :param weight: REQUEST_WEIGHT de la operación. Si es None, se calcula
-                       automáticamente desde weights.py.
-        :param timeout: Timeout en segundos para la petición HTTP.
-        :return: JSON parseado o texto, según `handle_response`.
+        Parameters
+        ----------
+        endpoint : str
+            Path de la API (ej: ``"/api/v3/time"``, ``"/fapi/v1/depth"``).
+        params : dict[str, Any] | None
+            Parametros de query (o None).
+        weight : int | None
+            REQUEST_WEIGHT de la operacion. Si es None, se calcula
+            automaticamente desde weights.py.
+        timeout : int
+            Timeout en segundos para la peticion HTTP.
+
+        Returns
+        -------
+        Any
+            JSON parseado o texto, segun ``handle_response``.
         """
         if weight is None:
             weight = get_weight(self.market, endpoint, params)
@@ -279,8 +301,15 @@ class BinancePublicClient:
         """
         Realiza un /ping en el mercado actual.
 
-        :param timeout: Timeout en segundos para la llamada HTTP.
-        :return: Respuesta JSON o cuerpo vacío según Binance.
+        Parameters
+        ----------
+        timeout : int
+            Timeout en segundos para la llamada HTTP.
+
+        Returns
+        -------
+        Any
+            Respuesta JSON o cuerpo vacio segun Binance.
         """
         endpoint = self._endpoint("ping")
         return self.get(endpoint=endpoint, params=None, timeout=timeout)
@@ -289,9 +318,20 @@ class BinancePublicClient:
         """
         Obtiene la hora del servidor para el mercado actual y actualiza el offset interno.
 
-        :param timeout: Timeout en segundos para la llamada HTTP.
-        :return: Diccionario con al menos la clave 'serverTime' en milisegundos.
-        :raises RuntimeError: Si la respuesta no es un dict con serverTime.
+        Parameters
+        ----------
+        timeout : int
+            Timeout en segundos para la llamada HTTP.
+
+        Returns
+        -------
+        dict[str, Any]
+            Diccionario con al menos la clave ``serverTime`` en milisegundos.
+
+        Raises
+        ------
+        RuntimeError
+            Si la respuesta no es un dict con serverTime.
         """
         endpoint = self._endpoint("time")
         data = self.get(endpoint=endpoint, params=None, timeout=timeout)
@@ -310,12 +350,16 @@ class BinancePublicClient:
         """
         Asegura disponer de suficientes muestras recientes de /time.
 
-        Si el estimador no está "ready", realiza llamadas a server_time()
-        hasta alcanzar al menos min_samples intentos o hasta que is_ready()
-        devuelva True.
+        Si el estimador no esta "ready", realiza llamadas a ``server_time()``
+        hasta alcanzar al menos *min_samples* intentos o hasta que
+        ``is_ready()`` devuelva True.
 
-        :param min_samples: Número mínimo de iteraciones de sincronización.
-        :param timeout: Timeout por llamada a /time.
+        Parameters
+        ----------
+        min_samples : int
+            Numero minimo de iteraciones de sincronizacion.
+        timeout : int
+            Timeout por llamada a /time.
         """
         attempts = 0
         target_attempts = max(min_samples, 1)
@@ -345,9 +389,17 @@ class BinancePublicClient:
         """
         Envuelve el endpoint /exchangeInfo del mercado actual.
 
-        :param symbol: Símbolo opcional (ej.: "BTCUSDT"). Si es None, devuelve toda la info.
-        :param timeout: Timeout en segundos para la llamada HTTP.
-        :return: Diccionario con la información del exchange.
+        Parameters
+        ----------
+        symbol : str | None
+            Simbolo opcional (ej.: ``"BTCUSDT"``). Si es None, devuelve toda la info.
+        timeout : int
+            Timeout en segundos para la llamada HTTP.
+
+        Returns
+        -------
+        dict
+            Informacion del exchange.
         """
         endpoint = self._endpoint("exchange_info")
         params: dict[str, object] | None = None
@@ -374,12 +426,21 @@ class BinancePublicClient:
         timeout: int = 10,
     ) -> list[dict]:
         """
-        Obtiene la lista de trades recientes del símbolo.
+        Obtiene la lista de trades recientes del simbolo.
 
-        :param symbol: Par de trading (ej.: "BTCUSDT").
-        :param limit: Número de trades a devolver (máx. según Binance).
-        :param timeout: Timeout en segundos.
-        :return: Lista de trades en formato dict.
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        limit : int
+            Numero de trades a devolver (max. segun Binance).
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        list[dict]
+            Lista de trades en formato dict.
         """
         endpoint = self._endpoint("trades")
         params = {
@@ -404,15 +465,27 @@ class BinancePublicClient:
         timeout: int = 10,
     ) -> list[dict]:
         """
-        Obtiene trades agregados (aggTrades) para un símbolo.
+        Obtiene trades agregados (aggTrades) para un simbolo.
 
-        :param symbol: Par de trading (ej.: "BTCUSDT").
-        :param from_id: ID inicial opcional.
-        :param start_time: Marca de tiempo inicial (ms).
-        :param end_time: Marca de tiempo final (ms).
-        :param limit: Máximo de registros a devolver.
-        :param timeout: Timeout en segundos.
-        :return: Lista de aggTrades.
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        from_id : int | None
+            ID inicial opcional.
+        start_time : int | None
+            Marca de tiempo inicial (ms).
+        end_time : int | None
+            Marca de tiempo final (ms).
+        limit : int
+            Maximo de registros a devolver.
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        list[dict]
+            Lista de aggTrades.
         """
         endpoint = self._endpoint("agg_trades")
         params: dict[str, object] = {
@@ -445,12 +518,21 @@ class BinancePublicClient:
         timeout: int = 10,
     ) -> dict:
         """
-        Obtiene la profundidad de libro (order book) para un símbolo.
+        Obtiene la profundidad de libro (order book) para un simbolo.
 
-        :param symbol: Par de trading (ej.: "BTCUSDT").
-        :param limit: Profundidad de niveles (ej.: 5, 10, 20, 50, 100, 500, 1000).
-        :param timeout: Timeout en segundos.
-        :return: Diccionario con bids/asks, lastUpdateId, etc.
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        limit : int
+            Profundidad de niveles (ej.: 5, 10, 20, 50, 100, 500, 1000).
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        dict
+            Diccionario con bids/asks, lastUpdateId, etc.
         """
         endpoint = self._endpoint("depth")
         params = {
@@ -479,15 +561,27 @@ class BinancePublicClient:
         timeout: int = 10,
     ) -> list[list[object]]:
         """
-        Obtiene velas (klines) para un símbolo e intervalo.
+        Obtiene velas (klines) para un simbolo e intervalo.
 
-        :param symbol: Par de trading (ej.: "BTCUSDT").
-        :param interval: Intervalo de vela (ej.: "1m", "5m", "1h", "1d").
-        :param start_time: Marca de arranque en ms (opcional).
-        :param end_time: Marca de fin en ms (opcional).
-        :param limit: Máximo de velas por petición.
-        :param timeout: Timeout en segundos.
-        :return: Lista de velas en el formato estándar de Binance.
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        interval : str
+            Intervalo de vela (ej.: ``"1m"``, ``"5m"``, ``"1h"``, ``"1d"``).
+        start_time : int | None
+            Marca de arranque en ms (opcional).
+        end_time : int | None
+            Marca de fin en ms (opcional).
+        limit : int
+            Maximo de velas por peticion.
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        list[list[object]]
+            Lista de velas en el formato estandar de Binance.
         """
         endpoint = self._endpoint("klines")
         params: dict[str, object] = {

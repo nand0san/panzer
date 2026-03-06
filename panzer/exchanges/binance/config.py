@@ -78,10 +78,22 @@ def _fetch_exchange_info(url: str, timeout: int = 10) -> dict[str, Any]:
     Lanza un GET contra el endpoint /exchangeInfo correspondiente y
     retorna el JSON parseado.
 
-    :param url: URL absoluta al endpoint /exchangeInfo.
-    :param timeout: Timeout de la petición HTTP en segundos.
-    :return: Dict con el JSON de respuesta.
-    :raises BinanceAPIException: si la respuesta no es OK.
+    Parameters
+    ----------
+    url : str
+        URL absoluta al endpoint /exchangeInfo.
+    timeout : int
+        Timeout de la peticion HTTP en segundos.
+
+    Returns
+    -------
+    dict[str, Any]
+        JSON de respuesta.
+
+    Raises
+    ------
+    BinanceAPIException
+        Si la respuesta no es OK.
     """
     resp = requests.get(url, timeout=timeout)
     # handle_response ya lanza BinanceAPIException si hay error (429, 5xx, etc.)
@@ -100,14 +112,21 @@ def _fetch_exchange_info(url: str, timeout: int = 10) -> dict[str, Any]:
 
 def _parse_rate_limits(payload: dict[str, Any]) -> ExchangeRateLimits:
     """
-    Parsea la sección `rateLimits` de la respuesta de /exchangeInfo.
+    Parsea la seccion ``rateLimits`` de la respuesta de /exchangeInfo.
 
-    Se construyen objetos RateLimit y se identifican los más relevantes:
+    Se construyen objetos RateLimit y se identifican los mas relevantes:
     - REQUEST_WEIGHT (priorizando intervalo MINUTE, intervalNum=1 si existe).
     - RAW_REQUESTS (si aparece).
 
-    :param payload: JSON devuelto por /exchangeInfo.
-    :return: ExchangeRateLimits con los límites relevantes y la lista completa.
+    Parameters
+    ----------
+    payload : dict[str, Any]
+        JSON devuelto por /exchangeInfo.
+
+    Returns
+    -------
+    ExchangeRateLimits
+        Limites relevantes y la lista completa.
     """
     raw_rl: list[RateLimit] = []
 
@@ -154,8 +173,15 @@ def get_spot_rate_limits(timeout: int = 10) -> ExchangeRateLimits:
     """
     Obtiene los rate limits de Binance SPOT desde /api/v3/exchangeInfo.
 
-    :param timeout: Timeout de la petición HTTP en segundos.
-    :return: ExchangeRateLimits con información de REQUEST_WEIGHT, etc.
+    Parameters
+    ----------
+    timeout : int
+        Timeout de la peticion HTTP en segundos.
+
+    Returns
+    -------
+    ExchangeRateLimits
+        Informacion de REQUEST_WEIGHT, etc.
     """
     data = _fetch_exchange_info(SPOT_EXCHANGE_INFO_URL, timeout=timeout)
     return _parse_rate_limits(data)
@@ -165,8 +191,15 @@ def get_futures_um_rate_limits(timeout: int = 10) -> ExchangeRateLimits:
     """
     Obtiene los rate limits de Binance Futuros USDT-M desde /fapi/v1/exchangeInfo.
 
-    :param timeout: Timeout de la petición HTTP en segundos.
-    :return: ExchangeRateLimits con información de REQUEST_WEIGHT, etc.
+    Parameters
+    ----------
+    timeout : int
+        Timeout de la peticion HTTP en segundos.
+
+    Returns
+    -------
+    ExchangeRateLimits
+        Informacion de REQUEST_WEIGHT, etc.
     """
     data = _fetch_exchange_info(FUTURES_UM_EXCHANGE_INFO_URL, timeout=timeout)
     return _parse_rate_limits(data)
@@ -176,8 +209,15 @@ def get_futures_cm_rate_limits(timeout: int = 10) -> ExchangeRateLimits:
     """
     Obtiene los rate limits de Binance Futuros COIN-M desde /dapi/v1/exchangeInfo.
 
-    :param timeout: Timeout de la petición HTTP en segundos.
-    :return: ExchangeRateLimits con información de REQUEST_WEIGHT, etc.
+    Parameters
+    ----------
+    timeout : int
+        Timeout de la peticion HTTP en segundos.
+
+    Returns
+    -------
+    ExchangeRateLimits
+        Informacion de REQUEST_WEIGHT, etc.
     """
     data = _fetch_exchange_info(FUTURES_CM_EXCHANGE_INFO_URL, timeout=timeout)
     return _parse_rate_limits(data)

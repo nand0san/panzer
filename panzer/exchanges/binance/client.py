@@ -148,7 +148,10 @@ class BinanceClient(BinancePublicClient):
             Respuesta del endpoint ``/account``.
         """
         endpoint = self._endpoint("account") if "account" in self._endpoints_map else self._account_endpoint()
-        return self.signed_request("GET", endpoint, recv_window=recv_window, timeout=timeout)
+        data = self.signed_request("GET", endpoint, recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de account: {data!r}")
+        return data
 
     def my_trades(
         self,
