@@ -158,6 +158,25 @@ class BinanceFixedWindowLimiter:
         """
         return self._last_server_used
 
+    @property
+    def effective_limit(self) -> int:
+        """
+        Limite efectivo tras aplicar el factor de seguridad.
+        """
+        return max(1, int(self.max_per_minute * self.safety_ratio))
+
+    @property
+    def remaining(self) -> int:
+        """
+        Peso disponible en la ventana actual antes de dormir.
+
+        Tiene en cuenta el rollover de ventana: si ha cambiado el minuto,
+        devuelve el limite efectivo completo.
+        """
+        with self._lock:
+            self._rollover_if_needed()
+            return max(0, self.effective_limit - self._used_local)
+
     def set_now_func(self, func):
         self._now_func = func
 

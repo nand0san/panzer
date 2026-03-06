@@ -47,7 +47,7 @@ def _label(md: MarketTestData) -> str:
 
 
 # =====================================================================
-# 1. Klines — estructura (seccion 1.1 / 5.1)
+# 1. Klines -- estructura (seccion 1.1 / 5.1)
 # =====================================================================
 
 class TestKlineStructure:
@@ -85,7 +85,7 @@ class TestKlineStructure:
 
 
 # =====================================================================
-# 1. Klines — invariantes OHLCV (seccion 1.5)
+# 1. Klines -- invariantes OHLCV (seccion 1.5)
 # =====================================================================
 
 class TestKlineOHLCVInvariants:
@@ -140,7 +140,7 @@ class TestKlineOHLCVInvariants:
 
 
 # =====================================================================
-# 1. Klines — timestamps (secciones 1.4, 1.5, 1.6)
+# 1. Klines -- timestamps (secciones 1.4, 1.5, 1.6)
 # =====================================================================
 
 class TestKlineTimestamps:
@@ -200,7 +200,7 @@ class TestKlineTimestamps:
 
 
 # =====================================================================
-# 1. Klines — multiples intervalos (seccion 6.3)
+# 1. Klines -- multiples intervalos (seccion 6.3)
 # =====================================================================
 
 class TestKlineMultipleIntervals:
@@ -233,7 +233,7 @@ class TestKlineMultipleIntervals:
 
 
 # =====================================================================
-# 2. Aggregated Trades (secciones 2.1 — 2.7)
+# 2. Aggregated Trades (secciones 2.1 -- 2.7)
 # =====================================================================
 
 class TestAggTradesInvariants:
@@ -306,7 +306,7 @@ class TestAggTradesInvariants:
 
 
 # =====================================================================
-# 2. AggTrades — diferencias entre mercados (seccion 6.2)
+# 2. AggTrades -- diferencias entre mercados (seccion 6.2)
 # =====================================================================
 
 class TestAggTradesMarketDifferences:
@@ -504,7 +504,7 @@ class TestDepthInvariants:
 
 
 # =====================================================================
-# 6. Propiedades transversales — timestamps (seccion 6.4)
+# 6. Propiedades transversales -- timestamps (seccion 6.4)
 # =====================================================================
 
 class TestTimestampsGeneral:

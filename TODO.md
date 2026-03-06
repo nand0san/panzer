@@ -1,3 +1,0 @@
-# TODO
-
-(sin items pendientes)
