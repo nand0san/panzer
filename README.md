@@ -39,7 +39,7 @@ pip install -e .
 
 Requires Python >= 3.11. Runtime dependencies: `requests`, `pycryptodome`.
 
-## Quick Start -- Public Endpoints
+## Quick Start — Public Endpoints
 
 ```python
 from panzer import BinancePublicClient
@@ -47,7 +47,7 @@ from panzer import BinancePublicClient
 # Create a client (loads rate limits and syncs clock automatically)
 client = BinancePublicClient(market="spot", safety_ratio=0.9)
 
-# Public endpoints -- weights are calculated automatically
+# Public endpoints — weights are calculated automatically
 klines = client.klines("BTCUSDT", "1m", limit=500)
 trades = client.trades("BTCUSDT", limit=100)
 book   = client.depth("BTCUSDT", limit=100)
@@ -62,7 +62,7 @@ um   = BinancePublicClient(market="um")      # https://fapi.binance.com
 cm   = BinancePublicClient(market="cm")      # https://dapi.binance.com
 ```
 
-## Quick Start -- Authenticated Endpoints
+## Quick Start — Authenticated Endpoints
 
 `BinanceClient` extends `BinancePublicClient` with signed request support.
 It manages API keys securely through `CredentialManager`.
@@ -199,7 +199,7 @@ data = client.signed_request(
 ### Using `get()` for any public endpoint
 
 ```python
-# Spot 24h ticker -- no wrapper needed
+# Spot 24h ticker — no wrapper needed
 ticker = client.get("/api/v3/ticker/24hr", params={"symbol": "BTCUSDT"})
 
 # Futures mark price
@@ -217,7 +217,7 @@ data = client.get("/api/v3/depth", params={"symbol": "BTCUSDT", "limit": 5000}, 
 
 The limiter works **transparently**. When accumulated weight approaches the limit
 (controlled by `safety_ratio`), the client **sleeps** until the next minute window.
-This means your code may block for up to ~60 seconds -- it won't raise an error,
+This means your code may block for up to ~60 seconds — it won't raise an error,
 it just waits.
 
 ```python
@@ -247,7 +247,7 @@ client.ensure_time_offset_ready(min_samples=3)
 server_ms = client.now_server_ms()
 ```
 
-If you skip this step, the limiter still works -- it just uses your local clock,
+If you skip this step, the limiter still works — it just uses your local clock,
 which may be slightly off from Binance's window boundaries.
 
 ## Error Handling

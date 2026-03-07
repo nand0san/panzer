@@ -62,7 +62,7 @@ class TestIsSensitive:
 
 
 # =====================================================================
-# CredentialManager -- add / get
+# CredentialManager — add / get
 # =====================================================================
 
 class TestCredentialManagerAddGet:
@@ -99,7 +99,7 @@ class TestCredentialManagerAddGet:
 
 
 # =====================================================================
-# CredentialManager -- persistencia en disco
+# CredentialManager — persistencia en disco
 # =====================================================================
 
 class TestCredentialManagerPersistence:
@@ -152,7 +152,7 @@ class TestCredentialManagerPersistence:
 
 
 # =====================================================================
-# CredentialManager -- multiples variables
+# CredentialManager — multiples variables
 # =====================================================================
 
 class TestCredentialManagerMultiple:
