@@ -89,6 +89,30 @@ _ENDPOINTS: dict[str, dict[str, str]] = {
 
 
 # ==========================
+# Duracion de cada intervalo de vela en milisegundos
+# ==========================
+
+TICK_INTERVAL_MS: dict[str, int] = {
+    '1s': 1_000,
+    '1m': 60_000,
+    '3m': 180_000,
+    '5m': 300_000,
+    '15m': 900_000,
+    '30m': 1_800_000,
+    '1h': 3_600_000,
+    '2h': 7_200_000,
+    '4h': 14_400_000,
+    '6h': 21_600_000,
+    '8h': 28_800_000,
+    '12h': 43_200_000,
+    '1d': 86_400_000,
+    '3d': 259_200_000,
+    '1w': 604_800_000,
+    '1M': 2_592_000_000,
+}
+
+
+# ==========================
 # Cliente público de alto nivel
 # ==========================
 
@@ -881,6 +905,207 @@ class BinancePublicClient:
         jobs: list[tuple[str, dict[str, Any] | None]] = [(endpoint, {"symbol": s, "limit": limit}) for s in normed]
         results = self.parallel_get(jobs, max_workers=max_workers, timeout=timeout)
         return dict(zip(normed, results, strict=True))
+
+    # ==========================
+    # Paginacion automatica por rango
+    # ==========================
+
+    def klines_range(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: int,
+        end_time: int,
+        *,
+        max_workers: int = 10,
+        timeout: int = 10,
+    ) -> list[list[object]]:
+        """
+        Obtiene todas las klines entre start_time y end_time, paginando automaticamente.
+
+        Divide el rango en bloques de hasta 1000 velas y lanza peticiones en
+        paralelo. Deduplica por open timestamp y descarta velas que abren
+        despues de end_time.
+
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        interval : str
+            Intervalo de vela (``"1m"``, ``"1h"``, ``"1d"``, etc.).
+        start_time : int
+            Marca de arranque en ms (inclusive).
+        end_time : int
+            Marca de fin en ms (inclusive).
+        max_workers : int
+            Threads concurrentes para peticiones paralelas.
+        timeout : int
+            Timeout en segundos por peticion.
+
+        Returns
+        -------
+        list[list[object]]
+            Lista de velas ordenadas por open timestamp, sin duplicados.
+
+        Raises
+        ------
+        ValueError
+            Si el intervalo no es soportado o start_time > end_time.
+        """
+        interval_ms = TICK_INTERVAL_MS.get(interval)
+        if interval_ms is None:
+            raise ValueError(f"Intervalo no soportado: {interval!r}")
+
+        now_ms = int(_time() * 1000)
+        end_time = min(end_time, now_ms)
+
+        if start_time > end_time:
+            raise ValueError(f"start_time ({start_time}) > end_time ({end_time})")
+
+        block_ms = 1000 * interval_ms
+        endpoint = self._endpoint("klines")
+
+        ranges: list[tuple[int, int]] = []
+        block_start = start_time
+        while block_start < end_time:
+            block_end = min(block_start + block_ms, end_time)
+            ranges.append((block_start, block_end))
+            block_start += block_ms
+
+        if not ranges:
+            return []
+
+        if len(ranges) == 1:
+            s, e = ranges[0]
+            return self.klines(symbol, interval, start_time=s, end_time=e, limit=1000, timeout=timeout)
+
+        jobs = [
+            (endpoint, {'symbol': symbol.upper(), 'interval': interval,
+                        'startTime': s, 'endTime': e, 'limit': 1000})
+            for s, e in ranges
+        ]
+        self._log.info("klines_range: %d peticiones en paralelo para %s %s", len(jobs), symbol, interval)
+        results = self.parallel_get(jobs, max_workers=max_workers, timeout=timeout)
+
+        all_klines: list[list[object]] = []
+        for batch in results:
+            if batch:
+                all_klines.extend(batch)
+
+        # deduplicar por open timestamp y descartar overtime
+        seen: set[int] = set()
+        unique: list[list[object]] = []
+        for k in all_klines:
+            open_ts = int(k[0])
+            if open_ts <= end_time and open_ts not in seen:
+                seen.add(open_ts)
+                unique.append(k)
+
+        unique.sort(key=lambda x: int(x[0]))
+        self._log.info("klines_range: %d velas obtenidas para %s %s", len(unique), symbol, interval)
+        return unique
+
+    def agg_trades_range(
+        self,
+        symbol: str,
+        start_time: int,
+        end_time: int,
+        *,
+        max_workers: int = 10,
+        timeout: int = 10,
+    ) -> list[dict]:
+        """
+        Obtiene todos los aggTrades entre start_time y end_time, paginando automaticamente.
+
+        Divide en chunks de 1 hora (limite de la API), lanza el primer batch
+        de cada chunk en paralelo, y sub-pagina secuencialmente si algun chunk
+        tiene >= 1000 trades. Deduplica por campo ``'a'`` (aggregate trade ID).
+
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        start_time : int
+            Marca de arranque en ms (inclusive).
+        end_time : int
+            Marca de fin en ms (inclusive).
+        max_workers : int
+            Threads concurrentes para peticiones paralelas.
+        timeout : int
+            Timeout en segundos por peticion.
+
+        Returns
+        -------
+        list[dict]
+            Lista de aggTrades ordenados por ``'a'``, sin duplicados.
+
+        Raises
+        ------
+        ValueError
+            Si start_time > end_time.
+        """
+        ONE_HOUR_MS = 3_600_000
+
+        now_ms = int(_time() * 1000)
+        end_time = min(end_time, now_ms)
+
+        if start_time > end_time:
+            raise ValueError(f"start_time ({start_time}) > end_time ({end_time})")
+
+        # chunks de 1 hora (limite de ventana de la API)
+        chunks: list[tuple[int, int]] = []
+        chunk_start = start_time
+        while chunk_start < end_time:
+            chunk_end = min(chunk_start + ONE_HOUR_MS, end_time)
+            chunks.append((chunk_start, chunk_end))
+            chunk_start = chunk_end + 1
+
+        if not chunks:
+            return []
+
+        # primer batch de cada chunk en paralelo
+        if len(chunks) == 1:
+            first_batches = [
+                self.agg_trades(symbol, start_time=chunks[0][0], end_time=chunks[0][1], limit=1000, timeout=timeout)
+            ]
+        else:
+            endpoint = self._endpoint("agg_trades")
+            jobs = [
+                (endpoint, {'symbol': symbol.upper(), 'startTime': cs, 'endTime': ce, 'limit': 1000})
+                for cs, ce in chunks
+            ]
+            self._log.info("agg_trades_range: %d peticiones en paralelo para %s", len(jobs), symbol)
+            first_batches = self.parallel_get(jobs, max_workers=max_workers, timeout=timeout)
+
+        all_trades: list[dict] = []
+
+        for i, batch in enumerate(first_batches):
+            if not batch:
+                continue
+            all_trades.extend(batch)
+
+            # sub-paginar dentro de la hora si hay >= 1000 trades
+            if len(batch) >= 1000:
+                chunk_end = chunks[i][1]
+                while True:
+                    sub_start = batch[-1]['T'] + 1
+                    if sub_start > chunk_end:
+                        break
+                    batch = self.agg_trades(
+                        symbol, start_time=sub_start, end_time=chunk_end, limit=1000, timeout=timeout
+                    )
+                    if not batch:
+                        break
+                    all_trades.extend(batch)
+                    if len(batch) < 1000:
+                        break
+
+        # deduplicar por 'a' y ordenar
+        seen: set[int] = set()
+        result = [t for t in all_trades if t['a'] not in seen and not seen.add(t['a'])]
+        result.sort(key=lambda x: x['a'])
+        self._log.info("agg_trades_range: %d trades obtenidos para %s", len(result), symbol)
+        return result
 
 
 # ==========================
