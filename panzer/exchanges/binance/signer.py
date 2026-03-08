@@ -30,12 +30,24 @@ class BinanceRequestSigner:
     Firma peticiones para la API de Binance usando HMAC-SHA256.
 
     Obtiene ``api_key`` y ``api_secret`` del ``CredentialManager``
-    (memoria -> disco -> prompt al usuario).
+    bajo demanda (memoria -> disco -> prompt al usuario).
 
     Parameters
     ----------
     credentials : CredentialManager | None
-        Gestor de credenciales. Si es None, crea uno por defecto.
+        Gestor de credenciales. Si es ``None``, crea uno por defecto.
+
+    Attributes
+    ----------
+    api_key : str
+        API key descifrada (propiedad de solo lectura).
+    api_secret : str
+        API secret descifrada (propiedad de solo lectura).
+
+    See Also
+    --------
+    CredentialManager : Almacenamiento seguro de credenciales.
+    BinanceClient : Consumidor principal de esta clase.
     """
 
     def __init__(self, credentials: CredentialManager | None = None) -> None:
@@ -43,12 +55,12 @@ class BinanceRequestSigner:
 
     @property
     def api_key(self) -> str:
-        """API key descifrada."""
+        """API key descifrada desde ``CredentialManager``."""
         return self._credentials.get("api_key", decrypt=True)
 
     @property
     def api_secret(self) -> str:
-        """API secret descifrada."""
+        """API secret descifrada desde ``CredentialManager``."""
         return self._credentials.get("api_secret", decrypt=True)
 
     def headers_with_api_key(self, headers: dict[str, str] | None = None) -> dict[str, str]:

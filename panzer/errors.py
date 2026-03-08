@@ -37,13 +37,25 @@ _log = LogManager(
 @dataclass
 class BinanceAPIErrorPayload:
     """
-    Representa la carga útil de error típica de la API de Binance.
+    Carga util de error tipica de la API de Binance.
 
-    Ejemplo de cuerpo:
-        {
-            "code": -1121,
-            "msg": "Invalid symbol."
-        }
+    Binance devuelve errores con la estructura ``{"code": <int>, "msg": <str>}``.
+    Este dataclass encapsula ambos campos de forma tipada.
+
+    Attributes
+    ----------
+    code : int | None
+        Codigo de error de Binance (negativo por convencion, ej. ``-1121``).
+        ``None`` si no se pudo parsear.
+    msg : str | None
+        Mensaje descriptivo del error (ej. ``"Invalid symbol."``).
+        ``None`` si no viene en la respuesta.
+
+    Examples
+    --------
+    >>> payload = BinanceAPIErrorPayload.from_dict({"code": -1121, "msg": "Invalid symbol."})
+    >>> payload.code
+    -1121
     """
 
     code: int | None
@@ -51,6 +63,19 @@ class BinanceAPIErrorPayload:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BinanceAPIErrorPayload:
+        """
+        Construye un payload a partir de un diccionario JSON.
+
+        Parameters
+        ----------
+        data : dict[str, Any]
+            Diccionario con claves opcionales ``"code"`` y ``"msg"``.
+
+        Returns
+        -------
+        BinanceAPIErrorPayload
+            Instancia con los valores parseados y tipados.
+        """
         code = data.get("code")
         msg = data.get("msg")
 
@@ -66,14 +91,28 @@ class BinanceAPIErrorPayload:
 
 class BinanceAPIException(Exception):
     """
-    Excepción base para errores devueltos por la API de Binance.
+    Excepcion para errores devueltos por la API de Binance.
 
-    Incluye:
-    - status_code HTTP.
-    - error_payload: código/mensaje de Binance (si se ha podido parsear).
-    - url: URL de la petición.
-    - method: GET/POST/DELETE...
-    - body: contenido de la respuesta (texto bruto), útil para debugging.
+    Se lanza tanto ante errores HTTP (4xx/5xx) como ante respuestas con
+    ``status_code`` 200 que contienen un ``"code"`` negativo en el cuerpo JSON.
+
+    Attributes
+    ----------
+    status_code : int
+        Codigo de estado HTTP de la respuesta.
+    method : str
+        Metodo HTTP usado (``"GET"``, ``"POST"``, ``"DELETE"``).
+    url : str
+        URL completa de la peticion.
+    error_payload : BinanceAPIErrorPayload | None
+        Codigo y mensaje de error de Binance, si se pudo parsear.
+    body : str | None
+        Cuerpo de la respuesta en texto bruto; util para debugging.
+
+    See Also
+    --------
+    handle_response : Funcion que construye y lanza esta excepcion.
+    BinanceAPIErrorPayload : Detalle del error de Binance.
     """
 
     def __init__(
@@ -104,12 +143,18 @@ class BinanceAPIException(Exception):
 
 def _extract_json_safe(response: requests.Response) -> tuple[dict[str, Any] | Any | None, str | None]:
     """
-    Intenta parsear JSON de la respuesta. Si falla, devuelve (None, texto).
+    Intenta parsear JSON de la respuesta sin lanzar excepciones.
+
+    Parameters
+    ----------
+    response : requests.Response
+        Objeto Response devuelto por ``requests``.
 
     Returns
     -------
     tuple[dict[str, Any] | Any | None, str | None]
-        (json_data, raw_text).
+        ``(json_data, None)`` si se pudo parsear, o ``(None, raw_text)``
+        si el cuerpo no es JSON valido.
     """
     try:
         data = response.json()
@@ -121,11 +166,21 @@ def _extract_json_safe(response: requests.Response) -> tuple[dict[str, Any] | An
 
 def _build_exception(response: requests.Response) -> BinanceAPIException:
     """
-    Construye una BinanceAPIException a partir de un objeto Response.
+    Construye una ``BinanceAPIException`` a partir de un ``Response``.
 
-    Maneja tanto errores HTTP (4xx/5xx) como cuerpos con la forma:
-        {"code": <int>, "msg": <str>}
-    aunque vengan con status_code 200.
+    Extrae el payload de error del cuerpo JSON si tiene la estructura
+    ``{"code": <int>, "msg": <str>}``, tanto para errores HTTP (4xx/5xx)
+    como para errores logicos con status 200.
+
+    Parameters
+    ----------
+    response : requests.Response
+        Respuesta HTTP de Binance.
+
+    Returns
+    -------
+    BinanceAPIException
+        Excepcion lista para ser lanzada.
     """
     method = (response.request.method if response.request is not None else None) or "GET"
     url = response.url or "UNKNOWN"

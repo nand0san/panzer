@@ -21,8 +21,21 @@ class TimeOffsetEstimator:
     """
     Estima el desfase de reloj entre el host local y el servidor.
 
-    - max_samples: nº máximo de muestras almacenadas.
-    - max_age_seconds: edad máxima de las muestras consideradas.
+    Mantiene una ventana deslizante de muestras ``(timestamp_local, offset)``
+    y calcula el offset como la **mediana** de la ventana, lo que lo hace
+    robusto frente a outliers por latencia de red.
+
+    Attributes
+    ----------
+    max_samples : int
+        Numero maximo de muestras almacenadas en la ventana.
+    max_age_seconds : float
+        Edad maxima (en segundos) de las muestras consideradas validas.
+
+    See Also
+    --------
+    BinancePublicClient.ensure_time_offset_ready :
+        Alimenta este estimador con llamadas a ``/time``.
     """
 
     max_samples: int = 20
@@ -35,9 +48,7 @@ class TimeOffsetEstimator:
     )
 
     def _drop_old(self, now: float) -> None:
-        """
-        Elimina muestras demasiado antiguas respecto a 'now'.
-        """
+        """Elimina muestras cuya edad excede ``max_age_seconds``."""
         while self._samples and now - self._samples[0][0] > self.max_age_seconds:
             self._samples.popleft()
 
@@ -74,7 +85,12 @@ class TimeOffsetEstimator:
 
     def is_ready(self) -> bool:
         """
-        Indica si hay suficientes muestras recientes como para fiarse del offset.
+        Indica si hay suficientes muestras recientes para una estimacion fiable.
+
+        Returns
+        -------
+        bool
+            ``True`` si hay al menos 3 muestras dentro de ``max_age_seconds``.
         """
         if not self._samples:
             return False

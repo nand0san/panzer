@@ -41,10 +41,30 @@ class CredentialManager:
     """
     Gestor de credenciales cifradas en memoria y disco.
 
+    Implementa una arquitectura de tres capas (memoria -> disco -> prompt)
+    para resolver credenciales de forma transparente. Los valores sensibles
+    se cifran automaticamente con ``AesCipher``.
+
     Parameters
     ----------
     filename : str
-        Nombre del archivo de credenciales en ``$HOME``.
+        Nombre del archivo de credenciales en ``$HOME``
+        (por defecto ``".panzer_creds"``).
+
+    Attributes
+    ----------
+    filepath : str
+        Ruta absoluta al archivo de credenciales en disco.
+
+    See Also
+    --------
+    AesCipher : Cifrado AES-128-CBC usado internamente.
+    BinanceRequestSigner : Consumidor principal de este gestor.
+
+    Examples
+    --------
+    >>> creds = CredentialManager()
+    >>> api_key = creds.get("api_key", decrypt=True)
     """
 
     def __init__(self, filename: str = ".panzer_creds") -> None:

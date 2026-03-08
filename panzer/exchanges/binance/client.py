@@ -27,21 +27,38 @@ class BinanceClient(BinancePublicClient):
     Cliente completo para Binance: endpoints publicos + autenticados.
 
     Hereda todos los metodos publicos de ``BinancePublicClient``
-    (klines, depth, agg_trades, trades, etc.) y anade soporte para
-    peticiones firmadas (account, ordenes, myTrades, etc.).
+    (klines, depth, agg_trades, trades, bulk_*, *_range, etc.) y anade
+    soporte para peticiones firmadas (account, ordenes, myTrades, etc.)
+    y semi-firmadas (historicalTrades).
 
     Parameters
     ----------
     market : MarketType
         Mercado: ``"spot"``, ``"um"`` o ``"cm"``.
     safety_ratio : float
-        Ratio de seguridad para el rate limiter (0-1].
+        Ratio de seguridad para el rate limiter ``(0, 1]``.
     credentials : CredentialManager | None
-        Gestor de credenciales. Si es None, crea uno por defecto
+        Gestor de credenciales. Si es ``None``, crea uno por defecto
         (busca en ``~/.panzer_creds`` o solicita al usuario).
     auto_sync : bool
-        Si True (por defecto), sincroniza el reloj con Binance al crear
-        el cliente. Pasar False para omitir la sincronizacion.
+        Si ``True``, sincroniza el reloj con Binance al instanciar.
+
+    Attributes
+    ----------
+    signer : BinanceRequestSigner
+        Firmante de peticiones HMAC-SHA256 (solo lectura).
+
+    See Also
+    --------
+    BinancePublicClient : Clase base con endpoints publicos.
+    BinanceRequestSigner : Firma HMAC-SHA256.
+    CredentialManager : Gestion de credenciales.
+
+    Examples
+    --------
+    >>> client = BinanceClient(market="spot")
+    >>> info = client.account()
+    >>> trades = client.my_trades("BTCUSDT", limit=100)
     """
 
     def __init__(
@@ -63,7 +80,7 @@ class BinanceClient(BinancePublicClient):
 
     @property
     def signer(self) -> BinanceRequestSigner:
-        """Acceso al firmante de peticiones."""
+        """Firmante HMAC-SHA256 para peticiones autenticadas (solo lectura)."""
         return self._signer
 
     # ── Peticion generica firmada ────────────────────────────
