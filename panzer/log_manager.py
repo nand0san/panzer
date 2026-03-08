@@ -32,13 +32,23 @@ from logging.handlers import RotatingFileHandler
 
 class LogManager:
     """
-    Wrapper ligero sobre logging que configura:
-    - Un logger con nombre.
-    - Un RotatingFileHandler en la carpeta indicada.
-    - Un StreamHandler a stdout.
-    - Formato consistente para todos los mensajes.
+    Wrapper ligero sobre ``logging`` con fichero rotativo y salida a stdout.
 
-    No hace imports de otros módulos de Panzer para evitar bucles.
+    Configura automaticamente un ``RotatingFileHandler`` y un
+    ``StreamHandler`` con formato homogeneo. No importa otros modulos
+    de Panzer para evitar dependencias circulares.
+
+    Attributes
+    ----------
+    name : str
+        Nombre interno del logger (``logging.getLogger(name)``).
+    logger : logging.Logger
+        Logger subyacente, accesible para uso directo.
+
+    Examples
+    --------
+    >>> log = LogManager(name="panzer.mi_modulo", folder="logs", level="DEBUG")
+    >>> log.info("Conexion establecida con %s", url)
     """
 
     def __init__(
@@ -129,46 +139,29 @@ class LogManager:
     # ============
     @property
     def logger(self) -> logging.Logger:
-        """
-        Devuelve el logger subyacente por si se quiere usar directamente.
-        """
+        """Logger subyacente de ``logging``, para uso directo si se necesita."""
         return self._logger
 
     # ============
     # Atajos estilo logging.Logger
     # ============
 
-    def debug(self, msg: str, *args, **kwargs) -> None:
-        """
-        Log de nivel DEBUG.
-
-        Soporta el mismo estilo de llamada que logging.Logger.debug,
-        por ejemplo:
-
-            log.debug("Valor: %s %s", a, b)
-        """
+    def debug(self, msg: str, *args: object, **kwargs: object) -> None:
+        """Emite un mensaje de nivel ``DEBUG``. Acepta formato estilo ``%s``."""
         self._logger.debug(msg, *args, **kwargs)
 
-    def info(self, msg: str, *args, **kwargs) -> None:
-        """
-        Log de nivel INFO.
-        """
+    def info(self, msg: str, *args: object, **kwargs: object) -> None:
+        """Emite un mensaje de nivel ``INFO``."""
         self._logger.info(msg, *args, **kwargs)
 
-    def warning(self, msg: str, *args, **kwargs) -> None:
-        """
-        Log de nivel WARNING.
-        """
+    def warning(self, msg: str, *args: object, **kwargs: object) -> None:
+        """Emite un mensaje de nivel ``WARNING``."""
         self._logger.warning(msg, *args, **kwargs)
 
-    def error(self, msg: str, *args, **kwargs) -> None:
-        """
-        Log de nivel ERROR.
-        """
+    def error(self, msg: str, *args: object, **kwargs: object) -> None:
+        """Emite un mensaje de nivel ``ERROR``."""
         self._logger.error(msg, *args, **kwargs)
 
-    def critical(self, msg: str, *args, **kwargs) -> None:
-        """
-        Log de nivel CRITICAL.
-        """
+    def critical(self, msg: str, *args: object, **kwargs: object) -> None:
+        """Emite un mensaje de nivel ``CRITICAL``."""
         self._logger.critical(msg, *args, **kwargs)

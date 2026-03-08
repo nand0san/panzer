@@ -50,7 +50,7 @@ def _spot_depth_weight(params: dict[str, Any] | None = None) -> int:
 
 
 def _spot_trades_weight(params: dict[str, Any] | None = None) -> int:
-    """Peso de GET /api/v3/trades: fijo 25."""
+    """Peso de GET ``/api/v3/trades``: siempre 25."""
     return 25
 
 
@@ -140,28 +140,28 @@ def _futures_klines_weight(params: dict[str, Any] | None = None) -> int:
 
 
 def _futures_ticker_24hr_weight(params: dict[str, Any] | None = None) -> int:
-    """Peso: 1 con symbol, 40 sin symbol."""
+    """Peso de ``ticker/24hr`` en futuros: 1 con symbol, 40 sin symbol."""
     if params and "symbol" in params:
         return 1
     return 40
 
 
 def _futures_ticker_price_weight(params: dict[str, Any] | None = None) -> int:
-    """Peso: 1 con symbol, 2 sin symbol."""
+    """Peso de ``ticker/price`` en futuros: 1 con symbol, 2 sin symbol."""
     if params and "symbol" in params:
         return 1
     return 2
 
 
 def _futures_ticker_book_weight(params: dict[str, Any] | None = None) -> int:
-    """Peso: 2 con symbol, 5 sin symbol."""
+    """Peso de ``ticker/bookTicker`` en futuros: 2 con symbol, 5 sin symbol."""
     if params and "symbol" in params:
         return 2
     return 5
 
 
 def _futures_mark_price_weight(params: dict[str, Any] | None = None) -> int:
-    """Peso de premiumIndex: 1 con symbol, 10 sin symbol."""
+    """Peso de ``premiumIndex``: 1 con symbol, 10 sin symbol."""
     if params and "symbol" in params:
         return 1
     return 10

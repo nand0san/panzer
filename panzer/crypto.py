@@ -30,6 +30,16 @@ class AesCipher:
     procesador reportada por ``platform.processor()``.  Si el
     procesador no esta disponible se usa ``platform.machine()``
     como fallback.
+
+    Notes
+    -----
+    Las credenciales cifradas con esta clase solo se pueden descifrar
+    en la misma maquina donde fueron creadas, ya que la clave depende
+    del hardware y del usuario del sistema operativo.
+
+    See Also
+    --------
+    CredentialManager : Gestor que usa esta clase para cifrar/descifrar.
     """
 
     def __init__(self) -> None:

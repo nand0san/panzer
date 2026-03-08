@@ -1,10 +1,9 @@
 # panzer/rate_limit/__init__.py
 """
-Módulos de control de rate limiting para exchanges.
+Control de rate limiting para exchanges.
 
-Por ahora sólo se implementa un limitador específico para Binance basado
-en ventanas fijas de un minuto y en los límites dinámicos obtenidos
-desde /exchangeInfo.
+Proporciona ``BinanceFixedWindowLimiter``, un limitador basado en ventanas
+fijas de un minuto sincronizado con los limites dinamicos de ``/exchangeInfo``.
 """
 
 from .binance_fixed import BinanceFixedWindowLimiter

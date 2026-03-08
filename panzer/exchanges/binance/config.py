@@ -36,13 +36,19 @@ FUTURES_CM_EXCHANGE_INFO_URL = "https://dapi.binance.com/dapi/v1/exchangeInfo"
 @dataclass
 class RateLimit:
     """
-    Representa una entrada del array `rateLimits` de /exchangeInfo.
+    Entrada individual del array ``rateLimits`` de ``/exchangeInfo``.
 
-    Campos esperados según la doc oficial:
-    - rateLimitType: REQUEST_WEIGHT, RAW_REQUEST(S), ORDERS, ORDER, etc.
-    - interval: SECOND, MINUTE, HOUR, DAY...
-    - intervalNum: tamaño del intervalo (1, 5, 10, ...)
-    - limit: máximo de peticiones/peso en dicho intervalo.
+    Attributes
+    ----------
+    rate_limit_type : str
+        Tipo de limite: ``"REQUEST_WEIGHT"``, ``"RAW_REQUESTS"``,
+        ``"ORDERS"``, etc.
+    interval : str
+        Unidad temporal: ``"SECOND"``, ``"MINUTE"``, ``"HOUR"``, ``"DAY"``.
+    interval_num : int
+        Tamano del intervalo (ej. ``1``, ``5``, ``10``).
+    limit : int
+        Maximo de peso/peticiones permitidas en el intervalo.
     """
 
     rate_limit_type: str
@@ -54,13 +60,26 @@ class RateLimit:
 @dataclass
 class ExchangeRateLimits:
     """
-    Colección de rate limits relevantes para un exchange concreto.
+    Coleccion de rate limits relevantes para un exchange concreto.
 
-    Se guarda:
-    - request_weight: límite de REQUEST_WEIGHT en el intervalo principal
-                      (típicamente MINUTE / 1).
-    - raw_requests: límite de RAW_REQUESTS si existe y es relevante.
-    - others: lista completa de todos los `rateLimits` devueltos.
+    Se obtiene parseando la respuesta de ``/exchangeInfo`` y seleccionando
+    los limites mas relevantes para el control de trafico.
+
+    Attributes
+    ----------
+    request_weight : RateLimit | None
+        Limite de ``REQUEST_WEIGHT`` en el intervalo principal
+        (tipicamente ``MINUTE / 1``). ``None`` si no se encontro.
+    raw_requests : RateLimit | None
+        Limite de ``RAW_REQUESTS`` si existe. ``None`` si no aparece.
+    others : list[RateLimit]
+        Lista completa de todos los ``rateLimits`` devueltos por el exchange.
+
+    See Also
+    --------
+    get_spot_rate_limits : Obtiene estos limites para Spot.
+    get_futures_um_rate_limits : Obtiene estos limites para Futuros USDT-M.
+    get_futures_cm_rate_limits : Obtiene estos limites para Futuros COIN-M.
     """
 
     request_weight: RateLimit | None

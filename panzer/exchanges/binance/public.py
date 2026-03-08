@@ -120,13 +120,39 @@ TICK_INTERVAL_MS: dict[str, int] = {
 @dataclass
 class BinancePublicClient:
     """
-    Cliente público de alto nivel para Binance.
+    Cliente publico de alto nivel para la API de Binance.
 
-    Aglutina:
-    - Selección de mercado (spot / um / cm).
-    - Rate limiter (BinanceFixedWindowLimiter) construido desde los límites
-      dinámicos de /exchangeInfo.
-    - Estimación del desfase de reloj mediante TimeOffsetEstimator.
+    Integra seleccion de mercado, rate limiting automatico y
+    sincronizacion de reloj en una interfaz unificada. Solo usa
+    endpoints publicos (sin API key ni firma).
+
+    Parameters
+    ----------
+    market : MarketType
+        Mercado: ``"spot"``, ``"um"`` (USDT-M) o ``"cm"`` (COIN-M).
+    safety_ratio : float
+        Factor de seguridad para el rate limiter (``(0, 1]``).
+    auto_sync : bool
+        Si ``True``, sincroniza el reloj con Binance al instanciar.
+
+    Attributes
+    ----------
+    limiter : BinanceFixedWindowLimiter
+        Rate limiter configurado con los limites de ``/exchangeInfo``.
+    time_offset : TimeOffsetEstimator
+        Estimador de desfase de reloj local vs. servidor.
+    base_url : str
+        URL base del mercado seleccionado.
+
+    See Also
+    --------
+    BinanceClient : Extiende este cliente con endpoints autenticados.
+
+    Examples
+    --------
+    >>> client = BinancePublicClient(market="spot")
+    >>> klines = client.klines("BTCUSDT", "1h", limit=100)
+    >>> books = client.bulk_depth(["BTCUSDT", "ETHUSDT"])
     """
 
     market: MarketType = "spot"
@@ -189,9 +215,15 @@ class BinancePublicClient:
     @property
     def limiter(self) -> BinanceFixedWindowLimiter:
         """
-        Acceso sólo-lectura al limiter interno.
+        Rate limiter interno (solo lectura).
 
-        Útil para inspeccionar métricas (used_local, last_server_used).
+        Permite inspeccionar metricas como ``used_local``,
+        ``last_server_used`` y ``remaining``.
+
+        Raises
+        ------
+        RuntimeError
+            Si se accede antes de que ``__post_init__`` lo inicialice.
         """
         if self._limiter is None:
             raise RuntimeError("Limiter no inicializado")
@@ -199,9 +231,7 @@ class BinancePublicClient:
 
     @property
     def time_offset(self) -> TimeOffsetEstimator:
-        """
-        Acceso al estimador de desfase de reloj.
-        """
+        """Estimador de desfase de reloj local vs. servidor."""
         return self._time_offset
 
     def _maybe_update_time_offset_from_response(
@@ -269,7 +299,7 @@ class BinancePublicClient:
         self,
         endpoint: str,
         params: dict[str, Any] | None = None,
-        *,
+
         weight: int = 1,
         timeout: int = 10,
     ) -> Any:
@@ -311,7 +341,7 @@ class BinancePublicClient:
         self,
         endpoint: str,
         params: dict[str, Any] | None = None,
-        *,
+
         weight: int | None = None,
         timeout: int = 10,
     ) -> Any:
@@ -391,7 +421,6 @@ class BinancePublicClient:
 
     def ensure_time_offset_ready(
         self,
-        *,
         min_samples: int = 3,
         timeout: int = 5,
     ) -> None:
@@ -418,9 +447,14 @@ class BinancePublicClient:
 
     def now_server_ms(self) -> int:
         """
-        Devuelve la estimación actual de 'ahora' en tiempo de servidor (ms).
+        Estimacion de la hora actual del servidor en milisegundos.
 
-        Usa internamente el estimador de offset de tiempo.
+        Aplica el offset calculado por ``TimeOffsetEstimator`` al reloj local.
+
+        Returns
+        -------
+        int
+            Epoch estimado del servidor en milisegundos.
         """
         return self._time_offset.to_server_ms()
 
@@ -431,7 +465,6 @@ class BinancePublicClient:
     def exchange_info(
         self,
         symbol: str | None = None,
-        *,
         timeout: int = 10,
     ) -> dict:
         """
@@ -466,10 +499,9 @@ class BinancePublicClient:
     # Wrappers de trades
     # ==========================
 
-    def trades(
-        self,
+    def trades(        self,
         symbol: str,
-        *,
+
         limit: int = 500,
         timeout: int = 10,
     ) -> list[dict]:
@@ -505,7 +537,7 @@ class BinancePublicClient:
     def agg_trades(
         self,
         symbol: str,
-        *,
+
         from_id: int | None = None,
         start_time: int | None = None,
         end_time: int | None = None,
@@ -561,7 +593,7 @@ class BinancePublicClient:
     def depth(
         self,
         symbol: str,
-        *,
+
         limit: int = 100,
         timeout: int = 10,
     ) -> dict:
@@ -602,7 +634,7 @@ class BinancePublicClient:
         self,
         symbol: str,
         interval: str,
-        *,
+
         start_time: int | None = None,
         end_time: int | None = None,
         limit: int = 500,
@@ -656,7 +688,7 @@ class BinancePublicClient:
     def parallel_get(
         self,
         jobs: list[tuple[str, dict[str, Any] | None]],
-        *,
+
         max_workers: int = 10,
         timeout: int = 10,
     ) -> list[Any]:
@@ -761,7 +793,7 @@ class BinancePublicClient:
     def bulk_trades(
         self,
         symbols: list[str],
-        *,
+
         limit: int = 500,
         max_workers: int = 10,
         timeout: int = 10,
@@ -795,7 +827,7 @@ class BinancePublicClient:
         self,
         symbols: list[str],
         interval: str,
-        *,
+
         start_time: int | None = None,
         end_time: int | None = None,
         limit: int = 500,
@@ -843,7 +875,7 @@ class BinancePublicClient:
     def bulk_depth(
         self,
         symbols: list[str],
-        *,
+
         limit: int = 100,
         max_workers: int = 10,
         timeout: int = 10,
@@ -876,7 +908,7 @@ class BinancePublicClient:
     def bulk_agg_trades(
         self,
         symbols: list[str],
-        *,
+
         limit: int = 500,
         max_workers: int = 10,
         timeout: int = 10,
@@ -916,7 +948,7 @@ class BinancePublicClient:
         interval: str,
         start_time: int,
         end_time: int,
-        *,
+
         max_workers: int = 10,
         timeout: int = 10,
     ) -> list[list[object]]:
@@ -1010,7 +1042,7 @@ class BinancePublicClient:
         symbol: str,
         start_time: int,
         end_time: int,
-        *,
+
         max_workers: int = 10,
         timeout: int = 10,
     ) -> list[dict]:

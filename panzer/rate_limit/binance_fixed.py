@@ -30,20 +30,40 @@ class BinanceFixedWindowLimiter:
     """
     Rate limiter para Binance usando ventanas fijas de un minuto.
 
-    Lógica:
-    - Se inicializa con un límite máximo de REQUEST_WEIGHT por minuto.
-    - Cada llamada a `acquire(weight)`:
-        - Actualiza la ventana (bucket) si ha cambiado el minuto.
-        - Si el uso local + weight supera un umbral (max_per_minute * safety_ratio),
-          duerme hasta el inicio del siguiente minuto.
-        - Incrementa el contador local.
-    - `update_from_headers(headers)`:
-        - Si encuentra `X-MBX-USED-WEIGHT-1M`, sincroniza el contador local
-          con el valor del servidor (tomando el máximo).
+    Cada llamada a ``acquire(weight)`` verifica si hay capacidad en la
+    ventana actual. Si el consumo proyectado excede
+    ``max_per_minute * safety_ratio``, duerme hasta el inicio del
+    siguiente minuto.
 
-    Este diseño permite:
-    - Alinear el control local con el contador real de Binance.
-    - Ajustar dinámicamente el límite global vía /exchangeInfo.
+    ``update_from_headers()`` sincroniza el contador local con la
+    cabecera ``X-MBX-USED-WEIGHT-1M`` del servidor (solo sube, nunca
+    baja, para ser conservador).
+
+    Attributes
+    ----------
+    max_per_minute : int
+        Limite maximo de REQUEST_WEIGHT por minuto para la IP.
+    safety_ratio : float
+        Factor de seguridad en ``(0, 1]``. Panzer no superara
+        ``max_per_minute * safety_ratio`` antes de dormir.
+    used_local : int
+        Peso acumulado en la ventana actual (propiedad de solo lectura).
+    last_server_used : int | None
+        Ultimo valor observado de ``X-MBX-USED-WEIGHT-1M``.
+    effective_limit : int
+        Limite efectivo tras aplicar ``safety_ratio``.
+    remaining : int
+        Peso disponible en la ventana actual antes de dormir.
+
+    Notes
+    -----
+    Thread-safe: todas las operaciones de lectura/escritura del contador
+    estan protegidas por un ``threading.Lock``.
+
+    See Also
+    --------
+    ExchangeRateLimits : Fuente de los limites dinamicos.
+    from_exchange_limits : Constructor de conveniencia.
     """
 
     def __init__(
@@ -146,23 +166,17 @@ class BinanceFixedWindowLimiter:
 
     @property
     def used_local(self) -> int:
-        """
-        Devuelve el peso local acumulado en la ventana actual.
-        """
+        """Peso local acumulado (``int``) en la ventana actual."""
         return self._used_local
 
     @property
     def last_server_used(self) -> int | None:
-        """
-        Devuelve el último valor observado de X-MBX-USED-WEIGHT-1M.
-        """
+        """Ultimo valor (``int``) de ``X-MBX-USED-WEIGHT-1M``, o ``None``."""
         return self._last_server_used
 
     @property
     def effective_limit(self) -> int:
-        """
-        Limite efectivo tras aplicar el factor de seguridad.
-        """
+        """Limite efectivo (``int``): ``max(1, max_per_minute * safety_ratio)``."""
         return max(1, int(self.max_per_minute * self.safety_ratio))
 
     @property
@@ -170,14 +184,28 @@ class BinanceFixedWindowLimiter:
         """
         Peso disponible en la ventana actual antes de dormir.
 
-        Tiene en cuenta el rollover de ventana: si ha cambiado el minuto,
-        devuelve el limite efectivo completo.
+        Si ha cambiado el minuto desde la ultima operacion, realiza un
+        rollover y devuelve el ``effective_limit`` completo.
+
+        Returns
+        -------
+        int
+            Peso restante, siempre ``>= 0``.
         """
         with self._lock:
             self._rollover_if_needed()
             return max(0, self.effective_limit - self._used_local)
 
-    def set_now_func(self, func):
+    def set_now_func(self, func: object) -> None:
+        """
+        Reemplaza la funcion de reloj usada internamente.
+
+        Parameters
+        ----------
+        func : callable
+            Funcion sin argumentos que devuelve epoch en segundos (``float``).
+            Por defecto es ``time.time``. Util para tests deterministas.
+        """
         self._now_func = func
 
     def acquire(self, weight: int = 1, now: float | None = None) -> None:
@@ -243,7 +271,15 @@ class BinanceFixedWindowLimiter:
 
     def update_from_headers(self, headers: Mapping[str, str]) -> None:
         """
-        Sincroniza el contador local con X-MBX-USED-WEIGHT-1M (si está presente).
+        Sincroniza el contador local con la cabecera ``X-MBX-USED-WEIGHT-1M``.
+
+        Solo sube ``used_local``, nunca lo baja (comportamiento conservador).
+        Si la cabecera no esta presente o no se puede parsear, no hace nada.
+
+        Parameters
+        ----------
+        headers : Mapping[str, str]
+            Cabeceras HTTP de la respuesta de Binance.
         """
         server_used: int | None = None
 
@@ -282,6 +318,26 @@ class BinanceFixedWindowLimiter:
         limits: ExchangeRateLimits,
         safety_ratio: float = 0.9,
     ) -> BinanceFixedWindowLimiter:
+        """
+        Construye un limiter a partir de los limites dinamicos de ``/exchangeInfo``.
+
+        Parameters
+        ----------
+        limits : ExchangeRateLimits
+            Limites parseados del exchange.
+        safety_ratio : float
+            Factor de seguridad en ``(0, 1]``.
+
+        Returns
+        -------
+        BinanceFixedWindowLimiter
+            Instancia configurada con ``request_weight.limit``.
+
+        Raises
+        ------
+        ValueError
+            Si ``limits.request_weight`` es ``None``.
+        """
         if limits.request_weight is None:
             raise ValueError("ExchangeRateLimits.request_weight no está definido; no se puede construir el limitador.")
         return cls(
