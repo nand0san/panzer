@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## v2.4.0 (2026-03-15)
+
+Liquidation orders endpoint for futures markets.
+
+### New features
+
+- `force_orders(symbol=, start_time=, end_time=, limit=)`: recent liquidation
+  orders from USDT-M and COIN-M futures. Public endpoint, no authentication
+  required. Returns up to 7 days of history with symbol, 24 hours without.
+
+### Internal
+
+- Added `_futures_force_orders_weight` to `weights.py` (20 with symbol, 50 without).
+- Added `/fapi/v1/forceOrders` and `/dapi/v1/forceOrders` to endpoint tables.
+
+## v2.3.0 (2026-03-12)
+
+Automatic pagination by time range.
+
+### New features
+
+- `klines_range(symbol, interval, start_time, end_time)`: fetches all klines
+  across a time range, automatically splitting into 1000-candle blocks and
+  requesting them in parallel. Deduplicates by open timestamp.
+- `agg_trades_range(symbol, start_time, end_time)`: fetches all aggregate
+  trades across a time range, splitting into 1-hour chunks with automatic
+  sub-pagination for high-activity periods. Deduplicates by trade ID.
+
 ## v2.2.0 (2026-03-06)
 
 Parallel bulk requests and automatic clock synchronization.

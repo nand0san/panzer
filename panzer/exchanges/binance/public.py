@@ -75,6 +75,7 @@ _ENDPOINTS: dict[str, dict[str, str]] = {
         "agg_trades": "/fapi/v1/aggTrades",
         "klines": "/fapi/v1/klines",
         "depth": "/fapi/v1/depth",
+        "force_orders": "/fapi/v1/forceOrders",
     },
     "cm": {
         "ping": "/dapi/v1/ping",
@@ -84,6 +85,7 @@ _ENDPOINTS: dict[str, dict[str, str]] = {
         "agg_trades": "/dapi/v1/aggTrades",
         "klines": "/dapi/v1/klines",
         "depth": "/dapi/v1/depth",
+        "force_orders": "/dapi/v1/forceOrders",
     },
 }
 
@@ -625,6 +627,68 @@ class BinancePublicClient:
             raise RuntimeError(f"Respuesta inesperada de /depth: {data!r}")
 
         return data
+
+    # ==========================
+    # Wrapper de liquidaciones (force orders)
+    # ==========================
+
+    def force_orders(
+        self,
+        symbol: str | None = None,
+
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 100,
+        timeout: int = 10,
+    ) -> list[dict]:
+        """
+        Obtiene ordenes de liquidacion recientes (solo futuros).
+
+        Wrapper del endpoint ``/forceOrders``. Disponible unicamente para
+        mercados ``"um"`` y ``"cm"``; en ``"spot"`` lanza ``KeyError``.
+
+        Parameters
+        ----------
+        symbol : str | None
+            Par de trading (ej.: ``"BTCUSDT"``). Si es ``None``, devuelve
+            liquidaciones de todos los simbolos (max 24 h de historico).
+            Con simbolo, el rango disponible es de hasta 7 dias.
+        start_time : int | None
+            Marca de tiempo inicial en ms (opcional).
+        end_time : int | None
+            Marca de tiempo final en ms (opcional).
+        limit : int
+            Maximo de registros a devolver (default 100, max 1000).
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        list[dict]
+            Lista de ordenes de liquidacion.
+
+        Raises
+        ------
+        KeyError
+            Si el mercado es ``"spot"`` (no existe el endpoint).
+        RuntimeError
+            Si la respuesta no es una lista.
+        """
+        endpoint = self._endpoint("force_orders")
+        params: dict[str, object] = {"limit": limit}
+        if symbol is not None:
+            params["symbol"] = symbol.upper()
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        data = self.get(endpoint=endpoint, params=params, timeout=timeout)
+
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de /forceOrders: {data!r}")
+
+        return data  # type: ignore[return-value]
 
     # ==========================
     # Wrapper de klines (velas)
