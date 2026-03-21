@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from panzer import BinancePublicClient
+from panzer.errors import BinanceAPIException
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -49,6 +50,7 @@ TICK_MS: dict[str, int] = {
 }
 
 MARKETS: list[str] = ["spot", "um", "cm"]
+FUTURES_MARKETS: list[str] = ["um", "cm"]
 
 
 # =====================================================================
@@ -68,6 +70,21 @@ class MarketTestData:
     agg_trades: list[dict[str, Any]]
     trades: list[dict[str, Any]]
     depth: dict[str, Any]
+
+
+@dataclass
+class FuturesTestData:
+    """Datos de derivados de un mercado futures, cacheados para toda la sesion."""
+
+    market: str
+    client: BinancePublicClient
+    primary_symbol: str
+    open_interest: dict[str, Any]
+    open_interest_hist: list[dict[str, Any]]
+    premium_index: dict[str, Any] | list[dict[str, Any]]
+    funding_rate_history: list[dict[str, Any]]
+    funding_info: list[dict[str, Any]]
+    force_orders: list[dict[str, Any]]
 
 
 # =====================================================================
@@ -122,6 +139,36 @@ def _build_market_data(market: str, rng: random.Random) -> MarketTestData:
     )
 
 
+def _build_futures_data(market: str, rng: random.Random) -> FuturesTestData:
+    """Crea un cliente futures y descarga datos de derivados."""
+    client = BinancePublicClient(market=market, safety_ratio=0.9)
+    info = client.exchange_info()
+    primary, _ = _pick_symbols(info, market, rng)
+
+    return FuturesTestData(
+        market=market,
+        client=client,
+        primary_symbol=primary,
+        open_interest=client.open_interest(primary),
+        open_interest_hist=client.open_interest_hist(primary, "5m", limit=10),
+        premium_index=client.premium_index(primary),
+        funding_rate_history=client.funding_rate_history(primary, limit=10),
+        funding_info=client.funding_info(),
+        force_orders=_safe_force_orders(client, primary),
+    )
+
+
+def _safe_force_orders(
+    client: BinancePublicClient,
+    symbol: str,
+) -> list[dict[str, Any]]:
+    """force_orders requiere API key en futuros; devuelve [] si falla auth."""
+    try:
+        return client.force_orders(symbol, limit=10)
+    except BinanceAPIException:
+        return []
+
+
 # =====================================================================
 # Fixtures de sesion
 # =====================================================================
@@ -157,6 +204,24 @@ def um_data(_all_market_data: dict) -> MarketTestData:
 @pytest.fixture(scope="session")
 def cm_data(_all_market_data: dict) -> MarketTestData:
     return _all_market_data["cm"]
+
+
+@pytest.fixture(scope="session")
+def _all_futures_data() -> dict[str, FuturesTestData]:
+    """Obtiene datos de derivados de todos los mercados futures una sola vez."""
+    rng = random.Random()
+    data: dict[str, FuturesTestData] = {}
+    for market in FUTURES_MARKETS:
+        fd = _build_futures_data(market, rng)
+        print(f"\n  [{market}/futures] primary={fd.primary_symbol}")
+        data[market] = fd
+    return data
+
+
+@pytest.fixture(scope="session", params=FUTURES_MARKETS)
+def futures_data(request: pytest.FixtureRequest, _all_futures_data: dict) -> FuturesTestData:
+    """Un FuturesTestData por mercado futures; el test se ejecuta 2 veces (um, cm)."""
+    return _all_futures_data[request.param]
 
 
 @pytest.fixture(scope="session")

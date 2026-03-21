@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## v2.5.1 (2026-03-21)
+
+Bug fix and documentation.
+
+### Bug fixes
+
+- `open_interest_hist()` on COIN-M: now sends `pair` instead of `symbol`
+  (e.g. `BTCUSD` instead of `BTCUSD_PERP`), which the API requires.
+
+### Documentation
+
+- CHANGELOG: added v2.5.0 entry.
+- README: added derivatives table, range pagination section.
+
+### Tests
+
+- `test_derivatives.py`: 62 empirical tests covering open interest,
+  premium index, funding rate, funding info, force orders, and spot
+  KeyError guards across UM and CM markets.
+
+### Internal
+
+- Fixed import sorting in `__init__.py` and line length in `client.py`.
+
+## v2.5.0 (2026-03-21)
+
+Derivatives REST wrappers for futures markets.
+
+### New features
+
+- `open_interest(symbol)`: current open interest for a futures symbol.
+- `open_interest_hist(symbol, period)`: historical aggregated open interest
+  with configurable period (`"5m"` to `"1d"`), time range and limit.
+- `premium_index(symbol=)`: mark price, index price, last funding rate and
+  next funding time. Returns dict (UM with symbol) or list (CM, or all symbols).
+- `funding_rate_history(symbol=, start_time=, end_time=, limit=)`: historical
+  funding rate records.
+- `funding_info()`: funding configuration for all contracts
+  (interval, cap, floor).
+
+### Internal
+
+- Added endpoint mappings for `openInterest`, `openInterestHist`,
+  `premiumIndex`, `fundingRate` and `fundingInfo` in both UM and CM.
+- Added weight entries for `/futures/data/openInterestHist` and
+  `/fundingInfo` (weight 1). Other endpoints already had weights.
+
 ## v2.4.0 (2026-03-15)
 
 Liquidation orders endpoint for futures markets.

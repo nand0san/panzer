@@ -496,7 +496,9 @@ class BinanceClient(BinancePublicClient):
             probe_start = search_end
             while probe_start < end_time:
                 probe_end = min(probe_start + ONE_HOUR_MS, end_time)
-                first_agg = self.agg_trades(symbol, start_time=probe_start, end_time=probe_end, limit=1, timeout=timeout)
+                first_agg = self.agg_trades(
+                    symbol, start_time=probe_start, end_time=probe_end, limit=1, timeout=timeout,
+                )
                 if first_agg:
                     break
                 probe_start = probe_end
@@ -514,7 +516,9 @@ class BinanceClient(BinancePublicClient):
             probe_end = search_start
             while probe_end > start_time:
                 probe_start = max(probe_end - ONE_HOUR_MS, start_time)
-                last_agg = self.agg_trades(symbol, start_time=probe_start, end_time=probe_end, limit=1000, timeout=timeout)
+                last_agg = self.agg_trades(
+                    symbol, start_time=probe_start, end_time=probe_end, limit=1000, timeout=timeout,
+                )
                 if last_agg:
                     break
                 probe_end = probe_start

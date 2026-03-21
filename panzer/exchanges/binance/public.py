@@ -758,7 +758,9 @@ class BinancePublicClient:
         Parameters
         ----------
         symbol : str
-            Par de trading (ej.: ``"BTCUSDT"``).
+            Par de trading (ej.: ``"BTCUSDT"`` en UM, ``"BTCUSD_PERP"``
+            en CM). En CM se extrae automaticamente el par base
+            (``"BTCUSD"``) que la API requiere como ``pair``.
         period : str
             Periodo de agregacion: ``"5m"``, ``"15m"``, ``"30m"``,
             ``"1h"``, ``"2h"``, ``"4h"``, ``"6h"``, ``"12h"`` o ``"1d"``.
@@ -786,10 +788,14 @@ class BinancePublicClient:
         """
         endpoint = self._endpoint("open_interest_hist")
         params: dict[str, object] = {
-            "symbol": symbol.upper(),
             "period": period,
             "limit": limit,
         }
+        # CM usa "pair" (ej. BTCUSD) en vez de "symbol" (ej. BTCUSD_PERP)
+        if self.market == "cm":
+            params["pair"] = symbol.upper().split("_")[0]
+        else:
+            params["symbol"] = symbol.upper()
         if start_time is not None:
             params["startTime"] = start_time
         if end_time is not None:
