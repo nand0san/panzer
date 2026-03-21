@@ -241,6 +241,8 @@ FUTURES_UM_WEIGHTS: dict[str, WeightEntry] = {
     "/fapi/v1/ticker/bookTicker": _futures_ticker_book_weight,
     "/fapi/v1/openInterest": 1,
     "/fapi/v1/forceOrders": _futures_force_orders_weight,
+    "/fapi/v1/fundingInfo": 1,
+    "/futures/data/openInterestHist": 1,
 }
 
 
@@ -261,6 +263,8 @@ FUTURES_CM_WEIGHTS: dict[str, WeightEntry] = {
     "/dapi/v1/ticker/bookTicker": _futures_ticker_book_weight,
     "/dapi/v1/openInterest": 1,
     "/dapi/v1/forceOrders": _futures_force_orders_weight,
+    "/dapi/v1/fundingInfo": 1,
+    "/futures/data/openInterestHist": 1,
 }
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "panzer"
-version = "2.4.0"
+version = "2.5.0"
 description = "REST API manager for Binance API. Manages weights and credentials simply and securely."
 readme = "README.md"
 license = "MIT"

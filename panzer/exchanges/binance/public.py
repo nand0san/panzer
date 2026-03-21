@@ -76,6 +76,11 @@ _ENDPOINTS: dict[str, dict[str, str]] = {
         "klines": "/fapi/v1/klines",
         "depth": "/fapi/v1/depth",
         "force_orders": "/fapi/v1/forceOrders",
+        "open_interest": "/fapi/v1/openInterest",
+        "open_interest_hist": "/futures/data/openInterestHist",
+        "premium_index": "/fapi/v1/premiumIndex",
+        "funding_rate": "/fapi/v1/fundingRate",
+        "funding_info": "/fapi/v1/fundingInfo",
     },
     "cm": {
         "ping": "/dapi/v1/ping",
@@ -86,6 +91,11 @@ _ENDPOINTS: dict[str, dict[str, str]] = {
         "klines": "/dapi/v1/klines",
         "depth": "/dapi/v1/depth",
         "force_orders": "/dapi/v1/forceOrders",
+        "open_interest": "/dapi/v1/openInterest",
+        "open_interest_hist": "/futures/data/openInterestHist",
+        "premium_index": "/dapi/v1/premiumIndex",
+        "funding_rate": "/dapi/v1/fundingRate",
+        "funding_info": "/dapi/v1/fundingInfo",
     },
 }
 
@@ -687,6 +697,238 @@ class BinancePublicClient:
 
         if not isinstance(data, list):
             raise RuntimeError(f"Respuesta inesperada de /forceOrders: {data!r}")
+
+        return data  # type: ignore[return-value]
+
+    # ==========================
+    # Wrappers de derivados (solo futuros)
+    # ==========================
+
+    def open_interest(
+        self,
+        symbol: str,
+        timeout: int = 10,
+    ) -> dict:
+        """
+        Obtiene el open interest actual de un simbolo (solo futuros).
+
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        dict
+            Diccionario con ``openInterest``, ``symbol`` y ``time``.
+
+        Raises
+        ------
+        KeyError
+            Si el mercado es ``"spot"``.
+        RuntimeError
+            Si la respuesta no es un dict.
+        """
+        endpoint = self._endpoint("open_interest")
+        params: dict[str, object] = {"symbol": symbol.upper()}
+
+        data = self.get(endpoint=endpoint, params=params, timeout=timeout)
+
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de /openInterest: {data!r}")
+
+        return data
+
+    def open_interest_hist(
+        self,
+        symbol: str,
+        period: str,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 30,
+        timeout: int = 10,
+    ) -> list[dict]:
+        """
+        Obtiene el historico de open interest agregado (solo futuros).
+
+        Wrapper del endpoint ``/futures/data/openInterestHist``.
+
+        Parameters
+        ----------
+        symbol : str
+            Par de trading (ej.: ``"BTCUSDT"``).
+        period : str
+            Periodo de agregacion: ``"5m"``, ``"15m"``, ``"30m"``,
+            ``"1h"``, ``"2h"``, ``"4h"``, ``"6h"``, ``"12h"`` o ``"1d"``.
+        start_time : int | None
+            Marca de tiempo inicial en ms (opcional).
+        end_time : int | None
+            Marca de tiempo final en ms (opcional).
+        limit : int
+            Maximo de registros (default 30, max 500).
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        list[dict]
+            Lista de registros con ``sumOpenInterest``,
+            ``sumOpenInterestValue`` y ``timestamp``.
+
+        Raises
+        ------
+        KeyError
+            Si el mercado es ``"spot"``.
+        RuntimeError
+            Si la respuesta no es una lista.
+        """
+        endpoint = self._endpoint("open_interest_hist")
+        params: dict[str, object] = {
+            "symbol": symbol.upper(),
+            "period": period,
+            "limit": limit,
+        }
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        data = self.get(endpoint=endpoint, params=params, timeout=timeout)
+
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de /openInterestHist: {data!r}")
+
+        return data  # type: ignore[return-value]
+
+    def premium_index(
+        self,
+        symbol: str | None = None,
+        timeout: int = 10,
+    ) -> dict | list[dict]:
+        """
+        Obtiene mark price, index price y funding rate actual (solo futuros).
+
+        Wrapper del endpoint ``/premiumIndex``. Cada entrada incluye
+        ``markPrice``, ``indexPrice``, ``lastFundingRate`` y
+        ``nextFundingTime``, entre otros campos.
+
+        Parameters
+        ----------
+        symbol : str | None
+            Par de trading (ej.: ``"BTCUSDT"``). Si es ``None``, devuelve
+            datos de todos los simbolos.
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        dict | list[dict]
+            Un dict si se especifica *symbol* (en mercado ``"um"``),
+            o una lista de dicts si no se especifica symbol o si el
+            mercado es ``"cm"`` (que siempre devuelve lista).
+
+        Raises
+        ------
+        KeyError
+            Si el mercado es ``"spot"``.
+        """
+        endpoint = self._endpoint("premium_index")
+        params: dict[str, object] | None = None
+        if symbol is not None:
+            params = {"symbol": symbol.upper()}
+
+        return self.get(endpoint=endpoint, params=params, timeout=timeout)
+
+    def funding_rate_history(
+        self,
+        symbol: str | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 100,
+        timeout: int = 10,
+    ) -> list[dict]:
+        """
+        Obtiene el historico de funding rate (solo futuros).
+
+        Parameters
+        ----------
+        symbol : str | None
+            Par de trading (ej.: ``"BTCUSDT"``). Si es ``None``, devuelve
+            datos de todos los simbolos (limitados por *limit*).
+        start_time : int | None
+            Marca de tiempo inicial en ms (opcional).
+        end_time : int | None
+            Marca de tiempo final en ms (opcional).
+        limit : int
+            Maximo de registros (default 100, max 1000).
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        list[dict]
+            Lista de registros con ``symbol``, ``fundingRate`` y
+            ``fundingTime``.
+
+        Raises
+        ------
+        KeyError
+            Si el mercado es ``"spot"``.
+        RuntimeError
+            Si la respuesta no es una lista.
+        """
+        endpoint = self._endpoint("funding_rate")
+        params: dict[str, object] = {"limit": limit}
+        if symbol is not None:
+            params["symbol"] = symbol.upper()
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        data = self.get(endpoint=endpoint, params=params, timeout=timeout)
+
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de /fundingRate: {data!r}")
+
+        return data  # type: ignore[return-value]
+
+    def funding_info(
+        self,
+        timeout: int = 10,
+    ) -> list[dict]:
+        """
+        Obtiene la configuracion de funding de todos los simbolos (solo futuros).
+
+        Devuelve los parametros de funding rate de cada contrato:
+        ``fundingIntervalHours``, ``adjustedFundingRateCap``,
+        ``adjustedFundingRateFloor``, etc.
+
+        Parameters
+        ----------
+        timeout : int
+            Timeout en segundos.
+
+        Returns
+        -------
+        list[dict]
+            Configuracion de funding por simbolo.
+
+        Raises
+        ------
+        KeyError
+            Si el mercado es ``"spot"``.
+        RuntimeError
+            Si la respuesta no es una lista.
+        """
+        endpoint = self._endpoint("funding_info")
+
+        data = self.get(endpoint=endpoint, params=None, timeout=timeout)
+
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de /fundingInfo: {data!r}")
 
         return data  # type: ignore[return-value]
 
