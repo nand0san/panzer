@@ -142,6 +142,42 @@ All wrapper methods share `timeout` (seconds, default 10) and return parsed JSON
 | `depth(symbol)` | Order book | `limit` (default 100; affects weight) |
 | `force_orders(symbol=)` | Liquidation orders (futures only) | `limit` (default 100, max 1000), `start_time`, `end_time` |
 
+### Derivatives (futures only)
+
+These methods are available only on `"um"` and `"cm"` clients. Calling them
+on `"spot"` raises `KeyError`.
+
+| Method | Description | Key parameters |
+|--------|-------------|----------------|
+| `open_interest(symbol)` | Current open interest | |
+| `open_interest_hist(symbol, period)` | Historical aggregated OI | `period` (`"5m"`..`"1d"`), `limit` (default 30, max 500), `start_time`, `end_time` |
+| `premium_index(symbol=)` | Mark price, index price, funding rate | Returns dict (UM + symbol) or list (CM, or all symbols) |
+| `funding_rate_history(symbol=)` | Historical funding rates | `limit` (default 100, max 1000), `start_time`, `end_time` |
+| `funding_info()` | Funding config for all contracts | Interval, cap, floor per symbol |
+
+### Range Pagination
+
+Fetch complete time ranges with automatic pagination and deduplication.
+
+```python
+from panzer import BinancePublicClient
+
+client = BinancePublicClient(market="um")
+
+# All 1m candles for the last 24h — automatically paginated
+import time
+end   = int(time.time() * 1000)
+start = end - 86_400_000
+
+klines = client.klines_range("BTCUSDT", "1m", start, end)
+aggs   = client.agg_trades_range("BTCUSDT", start, end)
+```
+
+| Method | Description | Pagination strategy |
+|--------|-------------|---------------------|
+| `klines_range(symbol, interval, start_time, end_time)` | All klines in range | 1000-candle blocks, parallel |
+| `agg_trades_range(symbol, start_time, end_time)` | All aggTrades in range | 1-hour chunks, parallel + sub-pagination |
+
 ## Bulk / Parallel Requests
 
 Fetch data from multiple symbols simultaneously. Panzer pre-calculates
@@ -202,9 +238,6 @@ data = client.signed_request(
 ```python
 # Spot 24h ticker — no wrapper needed
 ticker = client.get("/api/v3/ticker/24hr", params={"symbol": "BTCUSDT"})
-
-# Futures mark price
-mark = client.get("/fapi/v1/premiumIndex", params={"symbol": "BTCUSDT"})
 ```
 
 Weights are calculated automatically from `weights.py` tables. If an endpoint
