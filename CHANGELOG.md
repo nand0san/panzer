@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## v2.5.1 (2026-03-21)
+
+Bug fix and documentation.
+
+### Bug fixes
+
+- `open_interest_hist()` on COIN-M: now sends `pair` instead of `symbol`
+  (e.g. `BTCUSD` instead of `BTCUSD_PERP`), which the API requires.
+
+### Documentation
+
+- CHANGELOG: added v2.5.0 entry.
+- README: added derivatives table, range pagination section.
+
+### Tests
+
+- `test_derivatives.py`: 62 empirical tests covering open interest,
+  premium index, funding rate, funding info, force orders, and spot
+  KeyError guards across UM and CM markets.
+
+### Internal
+
+- Fixed import sorting in `__init__.py` and line length in `client.py`.
+
 ## v2.5.0 (2026-03-21)
 
 Derivatives REST wrappers for futures markets.
