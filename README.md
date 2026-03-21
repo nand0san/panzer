@@ -140,6 +140,7 @@ All wrapper methods share `timeout` (seconds, default 10) and return parsed JSON
 | `trades(symbol)` | Recent trades | `limit` (default 500) |
 | `agg_trades(symbol)` | Compressed/aggregate trades | `limit`, `from_id`, `start_time`, `end_time` |
 | `depth(symbol)` | Order book | `limit` (default 100; affects weight) |
+| `force_orders(symbol=)` | Liquidation orders (futures only) | `limit` (default 100, max 1000), `start_time`, `end_time` |
 
 ## Bulk / Parallel Requests
 
