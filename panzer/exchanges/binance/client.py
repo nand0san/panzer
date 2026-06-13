@@ -177,6 +177,46 @@ class BinanceClient(BinancePublicClient):
             raise RuntimeError(f"Respuesta inesperada de account: {data!r}")
         return data
 
+    def margin_account(self, *, recv_window: int = 5000, timeout: int = 10) -> dict:
+        """
+        Obtiene la cuenta de cross margin (``GET /sapi/v1/margin/account``).
+
+        Endpoint del wallet spot-margin (host ``api.binance.com``), independiente del split
+        um/cm. Solo aplica a clientes ``market="spot"``.
+
+        Returns
+        -------
+        dict
+            ``marginLevel``, ``total*OfBtc`` y ``userAssets`` (free, locked, borrowed,
+            interest, netAsset por activo).
+        """
+        if self.market != "spot":
+            raise RuntimeError(f"margin_account solo aplica a market='spot' (actual: {self.market!r}).")
+        data = self.signed_request("GET", _MARGIN_ENDPOINTS["cross_account"],
+                                   recv_window=recv_window, weight=10, timeout=timeout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de margin_account: {data!r}")
+        return data
+
+    def isolated_margin_account(self, *, recv_window: int = 5000, timeout: int = 10) -> dict:
+        """
+        Obtiene la cuenta de isolated margin (``GET /sapi/v1/margin/isolated/account``).
+
+        Solo aplica a clientes ``market="spot"``.
+
+        Returns
+        -------
+        dict
+            ``total*OfBtc`` y ``assets`` (cada par con sub-objetos ``baseAsset``/``quoteAsset``).
+        """
+        if self.market != "spot":
+            raise RuntimeError(f"isolated_margin_account solo aplica a market='spot' (actual: {self.market!r}).")
+        data = self.signed_request("GET", _MARGIN_ENDPOINTS["isolated_account"],
+                                   recv_window=recv_window, weight=10, timeout=timeout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de isolated_margin_account: {data!r}")
+        return data
+
     def my_trades(
         self,
         symbol: str,
@@ -575,6 +615,14 @@ class BinanceClient(BinancePublicClient):
 
     def _all_orders_endpoint(self) -> str:
         return _PRIVATE_ENDPOINTS[self.market]["all_orders"]
+
+
+# ── Endpoints de margin (spot-margin, host api.binance.com) ──
+
+_MARGIN_ENDPOINTS: dict[str, str] = {
+    "cross_account": "/sapi/v1/margin/account",
+    "isolated_account": "/sapi/v1/margin/isolated/account",
+}
 
 
 # ── Endpoints privados por mercado ───────────────────────────

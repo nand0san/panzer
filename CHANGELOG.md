@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v2.5.2 (2026-06-13)
+
+Cross/isolated margin account support.
+
+### Features
+
+- `BinanceClient.margin_account()`: cross margin account state via
+  signed `GET /sapi/v1/margin/account` (marginLevel, BTC totals,
+  per-asset free/locked/borrowed/interest/netAsset). Spot host only.
+- `BinanceClient.isolated_margin_account()`: isolated margin account
+  via signed `GET /sapi/v1/margin/isolated/account`.
+
 ## v2.5.1 (2026-03-21)
 
 Bug fix and documentation.
