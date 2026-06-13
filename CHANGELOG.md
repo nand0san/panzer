@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v2.5.3 (2026-06-13)
+
+Execution primitives for liquidation/emergency flows.
+
+### Features
+
+- `BinanceClient.margin_order()`: market/limit orders in cross/isolated margin
+  (`POST /sapi/v1/margin/order`, `sideEffectType` supported).
+- `BinanceClient.margin_open_orders()` / `margin_cancel_all_open_orders()`
+  (`GET`/`DELETE /sapi/v1/margin/openOrders`).
+- `BinanceClient.margin_borrow_repay()`: borrow/repay incl. interest
+  (`POST /sapi/v1/margin/borrow-repay`).
+- `BinanceClient.cancel_all_open_orders()` (spot, `DELETE /api/v3/openOrders`).
+- `BinanceClient.universal_transfer()` between wallets
+  (`POST /sapi/v1/asset/transfer`; e.g. MARGIN_MAIN, ISOLATEDMARGIN_MAIN).
+- `BinanceClient.dust_transfer()`: convert small balances to BNB
+  (`POST /sapi/v1/asset/dust`).
+- `BinancePublicClient.ticker_price()` (`GET /api/v3/ticker/price`).
+
 ## v2.5.2 (2026-06-13)
 
 Cross/isolated margin account support.

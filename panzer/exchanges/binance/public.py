@@ -507,6 +507,26 @@ class BinancePublicClient:
 
         return data
 
+    def ticker_price(self, symbol: str | None = None, timeout: int = 10) -> dict | list:
+        """
+        Precio actual de un symbol o de todos (``GET /api/v3/ticker/price``).
+
+        Parameters
+        ----------
+        symbol : str | None
+            Symbol (ej.: ``"BTCUSDC"``). Si es None, devuelve la lista de todos los precios.
+
+        Returns
+        -------
+        dict | list
+            ``{"symbol":..., "price":...}`` o lista de ellos si ``symbol`` es None.
+        """
+        params: dict[str, object] | None = {"symbol": symbol.upper()} if symbol is not None else None
+        data = self.get(endpoint="/api/v3/ticker/price", params=params, timeout=timeout)
+        if not isinstance(data, (dict, list)):
+            raise RuntimeError(f"Respuesta inesperada de /ticker/price: {data!r}")
+        return data
+
     # ==========================
     # Wrappers de trades
     # ==========================

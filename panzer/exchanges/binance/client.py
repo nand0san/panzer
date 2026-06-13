@@ -437,6 +437,141 @@ class BinanceClient(BinancePublicClient):
             raise RuntimeError(f"Respuesta inesperada de allOrders: {data!r}")
         return data  # type: ignore[return-value]
 
+    # ── Margin: ordenes, repago y open orders (spot host /sapi) ──
+
+    def margin_order(
+        self,
+        symbol: str,
+        side: Literal["BUY", "SELL"],
+        order_type: str,
+        *,
+        quantity: float | None = None,
+        quote_order_qty: float | None = None,
+        price: float | None = None,
+        time_in_force: str | None = None,
+        is_isolated: bool = False,
+        side_effect_type: str | None = None,
+        recv_window: int = 5000,
+        timeout: int = 10,
+        **extra: str | int,
+    ) -> dict:
+        """
+        Envia una orden en cuenta margin (``POST /sapi/v1/margin/order``). Cross por defecto;
+        ``is_isolated=True`` para isolated (requiere ``symbol``). ``side_effect_type`` puede ser
+        ``NO_SIDE_EFFECT`` / ``MARGIN_BUY`` / ``AUTO_REPAY``.
+        """
+        params: list[tuple[str, str | int]] = [
+            ("symbol", symbol.upper()), ("side", side), ("type", order_type),
+        ]
+        if is_isolated:
+            params.append(("isIsolated", "TRUE"))
+        if quantity is not None:
+            params.append(("quantity", str(quantity)))
+        if quote_order_qty is not None:
+            params.append(("quoteOrderQty", str(quote_order_qty)))
+        if price is not None:
+            params.append(("price", str(price)))
+        if time_in_force is not None:
+            params.append(("timeInForce", time_in_force))
+        if side_effect_type is not None:
+            params.append(("sideEffectType", side_effect_type))
+        for k, v in extra.items():
+            params.append((k, v))
+        data = self.signed_request("POST", "/sapi/v1/margin/order", params, weight=6,
+                                   recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de margin_order: {data!r}")
+        return data
+
+    def margin_open_orders(self, symbol: str | None = None, *, is_isolated: bool = False,
+                           recv_window: int = 5000, timeout: int = 10) -> list[dict]:
+        """Ordenes abiertas en margin (``GET /sapi/v1/margin/openOrders``). isolated requiere symbol."""
+        params: list[tuple[str, str | int]] = []
+        if symbol is not None:
+            params.append(("symbol", symbol.upper()))
+        if is_isolated:
+            params.append(("isIsolated", "TRUE"))
+        data = self.signed_request("GET", "/sapi/v1/margin/openOrders", params, weight=10,
+                                   recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de margin_open_orders: {data!r}")
+        return data  # type: ignore[return-value]
+
+    def margin_cancel_all_open_orders(self, symbol: str, *, is_isolated: bool = False,
+                                      recv_window: int = 5000, timeout: int = 10) -> list[dict]:
+        """Cancela todas las ordenes abiertas de un symbol en margin (``DELETE /sapi/v1/margin/openOrders``)."""
+        params: list[tuple[str, str | int]] = [("symbol", symbol.upper())]
+        if is_isolated:
+            params.append(("isIsolated", "TRUE"))
+        data = self.signed_request("DELETE", "/sapi/v1/margin/openOrders", params, weight=1,
+                                   recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de margin_cancel_all_open_orders: {data!r}")
+        return data  # type: ignore[return-value]
+
+    def margin_borrow_repay(self, asset: str, amount: float, *, side: str = "REPAY",
+                            is_isolated: bool = False, symbol: str | None = None,
+                            recv_window: int = 5000, timeout: int = 10) -> dict:
+        """
+        Pide prestado o repaga en margin (``POST /sapi/v1/margin/borrow-repay``).
+
+        ``side`` = ``"REPAY"`` (salda principal+intereses) o ``"BORROW"``. ``is_isolated=True``
+        requiere ``symbol``.
+        """
+        params: list[tuple[str, str | int]] = [
+            ("asset", asset.upper()), ("amount", str(amount)), ("type", side),
+            ("isIsolated", "TRUE" if is_isolated else "FALSE"),
+        ]
+        if symbol is not None:
+            params.append(("symbol", symbol.upper()))
+        data = self.signed_request("POST", "/sapi/v1/margin/borrow-repay", params, weight=1500,
+                                   recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de margin_borrow_repay: {data!r}")
+        return data
+
+    def cancel_all_open_orders(self, symbol: str, *, recv_window: int = 5000, timeout: int = 10) -> list[dict]:
+        """Cancela todas las ordenes abiertas spot de un symbol (``DELETE /api/v3/openOrders``)."""
+        params: list[tuple[str, str | int]] = [("symbol", symbol.upper())]
+        data = self.signed_request("DELETE", "/api/v3/openOrders", params, weight=1,
+                                   recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, list):
+            raise RuntimeError(f"Respuesta inesperada de cancel_all_open_orders: {data!r}")
+        return data  # type: ignore[return-value]
+
+    # ── Transferencias entre carteras y conversion de polvo (/sapi) ──
+
+    def universal_transfer(self, transfer_type: str, asset: str, amount: float, *,
+                           from_symbol: str | None = None, to_symbol: str | None = None,
+                           recv_window: int = 5000, timeout: int = 10) -> dict:
+        """
+        Transferencia universal entre carteras (``POST /sapi/v1/asset/transfer``).
+
+        ``transfer_type`` p.ej. ``MARGIN_MAIN`` (cross margin -> spot), ``MAIN_MARGIN``,
+        ``ISOLATEDMARGIN_MAIN`` (isolated -> spot, requiere ``from_symbol``).
+        """
+        params: list[tuple[str, str | int]] = [
+            ("type", transfer_type), ("asset", asset.upper()), ("amount", str(amount)),
+        ]
+        if from_symbol is not None:
+            params.append(("fromSymbol", from_symbol.upper()))
+        if to_symbol is not None:
+            params.append(("toSymbol", to_symbol.upper()))
+        data = self.signed_request("POST", "/sapi/v1/asset/transfer", params, weight=900,
+                                   recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de universal_transfer: {data!r}")
+        return data
+
+    def dust_transfer(self, assets: list[str], *, recv_window: int = 5000, timeout: int = 10) -> dict:
+        """Convierte saldos pequenos ('polvo') a BNB (``POST /sapi/v1/asset/dust``)."""
+        params: list[tuple[str, str | int]] = [("asset", a.upper()) for a in assets]
+        data = self.signed_request("POST", "/sapi/v1/asset/dust", params, weight=10,
+                                   recv_window=recv_window, timeout=timeout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Respuesta inesperada de dust_transfer: {data!r}")
+        return data
+
     # ── Wrappers semi-firmados (solo API key, sin HMAC) ─────────
 
     def historical_trades(
