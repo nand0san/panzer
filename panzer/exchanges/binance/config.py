@@ -5,6 +5,7 @@ Obtención y parseo de rate limits desde los endpoints /exchangeInfo de Binance.
 - Spot:       https://api.binance.com/api/v3/exchangeInfo
 - Futures UM: https://fapi.binance.com/fapi/v1/exchangeInfo
 - Futures CM: https://dapi.binance.com/dapi/v1/exchangeInfo
+- Options:    https://eapi.binance.com/eapi/v1/exchangeInfo
 
 Se extraen especialmente los límites de tipo REQUEST_WEIGHT y RAW_REQUESTS
 para intervalos de interés (por ejemplo, MINUTE).
@@ -26,6 +27,7 @@ from panzer.errors import BinanceAPIException, handle_response
 SPOT_EXCHANGE_INFO_URL = "https://api.binance.com/api/v3/exchangeInfo"
 FUTURES_UM_EXCHANGE_INFO_URL = "https://fapi.binance.com/fapi/v1/exchangeInfo"
 FUTURES_CM_EXCHANGE_INFO_URL = "https://dapi.binance.com/dapi/v1/exchangeInfo"
+OPTIONS_EXCHANGE_INFO_URL = "https://eapi.binance.com/eapi/v1/exchangeInfo"
 
 
 # ==========================
@@ -239,6 +241,28 @@ def get_futures_cm_rate_limits(timeout: int = 10) -> ExchangeRateLimits:
         Informacion de REQUEST_WEIGHT, etc.
     """
     data = _fetch_exchange_info(FUTURES_CM_EXCHANGE_INFO_URL, timeout=timeout)
+    return _parse_rate_limits(data)
+
+
+def get_options_rate_limits(timeout: int = 10) -> ExchangeRateLimits:
+    """
+    Obtiene los rate limits de Binance Options (EAPI) desde /eapi/v1/exchangeInfo.
+
+    El array ``rateLimits`` de EAPI comparte la misma forma que el de spot y
+    futuros (``REQUEST_WEIGHT`` en intervalo MINUTE), por lo que el parser
+    generico ``_parse_rate_limits`` lo procesa sin cambios.
+
+    Parameters
+    ----------
+    timeout : int
+        Timeout de la peticion HTTP en segundos.
+
+    Returns
+    -------
+    ExchangeRateLimits
+        Informacion de REQUEST_WEIGHT, etc.
+    """
+    data = _fetch_exchange_info(OPTIONS_EXCHANGE_INFO_URL, timeout=timeout)
     return _parse_rate_limits(data)
 
 

@@ -31,6 +31,7 @@ from panzer.rate_limit.binance_fixed import BinanceFixedWindowLimiter
 BINANCE_SPOT_BASE_URL = "https://api.binance.com"
 BINANCE_FUTURES_UM_BASE_URL = "https://fapi.binance.com"
 BINANCE_FUTURES_CM_BASE_URL = "https://dapi.binance.com"
+BINANCE_OPTIONS_BASE_URL = "https://eapi.binance.com"
 
 
 # ==========================

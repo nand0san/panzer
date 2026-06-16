@@ -1,5 +1,75 @@
 # CHANGELOG
 
+## v2.6.0 (2026-06-16)
+
+European Options (EAPI) public market data.
+
+### Features
+
+- New `BinanceOptionsClient` (market fixed to `"eapi"`,
+  `https://eapi.binance.com`). Subclass of `BinancePublicClient`: reuses the
+  HTTP layer, rate limiting (REQUEST_WEIGHT 400/min from `/eapi/v1/exchangeInfo`)
+  and clock sync.
+- `exchange_info_options()`: contract catalog (strikes, expiries, CALL/PUT,
+  underlying, filters, status) via `GET /eapi/v1/exchangeInfo`.
+- `mark(symbol=)`: mark price, implied volatility and greeks
+  (delta/gamma/theta/vega) via `GET /eapi/v1/mark`. IV and greeks are computed
+  by Binance.
+- `index(underlying)`: underlying index price (`GET /eapi/v1/index`).
+- `ticker(symbol=)`: 24h stats per contract (`GET /eapi/v1/ticker`).
+- `open_interest(underlying_asset, expiration)`: aggregated OI per expiry
+  (`GET /eapi/v1/openInterest`; note the per-asset/expiry signature, distinct
+  from the futures `open_interest(symbol)`).
+- `exercise_history(underlying=)`: past exercises/settlements
+  (`GET /eapi/v1/exerciseHistory`).
+- `depth()` and `klines()` inherited unchanged for the `"eapi"` market.
+
+### Infrastructure
+
+- `"eapi"` registered as a market across `weights.py` (`OPTIONS_WEIGHTS`),
+  `config.py` (`get_options_rate_limits()`) and `public.py` (`_ENDPOINTS`,
+  `base_url`, `_load_limits`).
+- `BINANCE_OPTIONS_BASE_URL` added to `http/client.py`.
+
+### Tests
+
+- `test_options.py`: 52 empirical tests covering exchangeInfo, mark (IV/greeks
+  invariants: CALL delta in [0,1], PUT delta in [-1,0], gamma/vega >= 0, the
+  `bidIV/askIV == -1` sentinel), index, ticker, depth, klines, open interest
+  and exercise history. Live symbols are discovered at runtime (status
+  `TRADING`) since option contracts expire.
+
+## v2.5.3 (2026-06-13)
+
+Execution primitives for liquidation/emergency flows.
+
+### Features
+
+- `BinanceClient.margin_order()`: market/limit orders in cross/isolated margin
+  (`POST /sapi/v1/margin/order`, `sideEffectType` supported).
+- `BinanceClient.margin_open_orders()` / `margin_cancel_all_open_orders()`
+  (`GET`/`DELETE /sapi/v1/margin/openOrders`).
+- `BinanceClient.margin_borrow_repay()`: borrow/repay incl. interest
+  (`POST /sapi/v1/margin/borrow-repay`).
+- `BinanceClient.cancel_all_open_orders()` (spot, `DELETE /api/v3/openOrders`).
+- `BinanceClient.universal_transfer()` between wallets
+  (`POST /sapi/v1/asset/transfer`; e.g. MARGIN_MAIN, ISOLATEDMARGIN_MAIN).
+- `BinanceClient.dust_transfer()`: convert small balances to BNB
+  (`POST /sapi/v1/asset/dust`).
+- `BinancePublicClient.ticker_price()` (`GET /api/v3/ticker/price`).
+
+## v2.5.2 (2026-06-13)
+
+Cross/isolated margin account support.
+
+### Features
+
+- `BinanceClient.margin_account()`: cross margin account state via
+  signed `GET /sapi/v1/margin/account` (marginLevel, BTC totals,
+  per-asset free/locked/borrowed/interest/netAsset). Spot host only.
+- `BinanceClient.isolated_margin_account()`: isolated margin account
+  via signed `GET /sapi/v1/margin/isolated/account`.
+
 ## v2.5.1 (2026-03-21)
 
 Bug fix and documentation.

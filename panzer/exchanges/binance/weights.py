@@ -174,6 +174,26 @@ def _futures_force_orders_weight(params: dict[str, Any] | None = None) -> int:
     return 50
 
 
+def _options_depth_weight(params: dict[str, Any] | None = None) -> int:
+    """
+    Peso de GET /eapi/v1/depth segun el parametro limit.
+
+    ========= ======
+    limit      peso
+    ========= ======
+    5-100         2
+    101-500       5
+    501-1000     10
+    ========= ======
+    """
+    limit = int((params or {}).get("limit", 100))
+    if limit <= 100:
+        return 2
+    if limit <= 500:
+        return 5
+    return 10
+
+
 # ==========================
 # Tipo para entradas de peso
 # ==========================
@@ -268,6 +288,22 @@ FUTURES_CM_WEIGHTS: dict[str, WeightEntry] = {
 }
 
 
+OPTIONS_WEIGHTS: dict[str, WeightEntry] = {
+    # --- General ---
+    "/eapi/v1/ping": 1,
+    "/eapi/v1/time": 1,
+    "/eapi/v1/exchangeInfo": 1,
+    # --- Market data ---
+    "/eapi/v1/index": 1,
+    "/eapi/v1/mark": 5,
+    "/eapi/v1/depth": _options_depth_weight,
+    "/eapi/v1/klines": 1,
+    "/eapi/v1/ticker": 5,
+    "/eapi/v1/openInterest": 1,
+    "/eapi/v1/exerciseHistory": 3,
+}
+
+
 # ==========================
 # Mapa global por mercado
 # ==========================
@@ -276,6 +312,7 @@ WEIGHTS_BY_MARKET: dict[str, dict[str, WeightEntry]] = {
     "spot": SPOT_WEIGHTS,
     "um": FUTURES_UM_WEIGHTS,
     "cm": FUTURES_CM_WEIGHTS,
+    "eapi": OPTIONS_WEIGHTS,
 }
 
 

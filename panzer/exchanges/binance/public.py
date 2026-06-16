@@ -25,6 +25,7 @@ from panzer.exchanges.binance.config import (
     ExchangeRateLimits,
     get_futures_cm_rate_limits,
     get_futures_um_rate_limits,
+    get_options_rate_limits,
     get_spot_rate_limits,
 )
 from panzer.exchanges.binance.weights import get_weight
@@ -32,13 +33,14 @@ from panzer.http import binance_public_get
 from panzer.http.client import (
     BINANCE_FUTURES_CM_BASE_URL,
     BINANCE_FUTURES_UM_BASE_URL,
+    BINANCE_OPTIONS_BASE_URL,
     BINANCE_SPOT_BASE_URL,
 )
 from panzer.log_manager import LogManager
 from panzer.rate_limit.binance_fixed import BinanceFixedWindowLimiter
 from panzer.time_sync import TimeOffsetEstimator
 
-MarketType = Literal["spot", "um", "cm"]
+MarketType = Literal["spot", "um", "cm", "eapi"]
 
 
 # ==========================
@@ -96,6 +98,18 @@ _ENDPOINTS: dict[str, dict[str, str]] = {
         "premium_index": "/dapi/v1/premiumIndex",
         "funding_rate": "/dapi/v1/fundingRate",
         "funding_info": "/dapi/v1/fundingInfo",
+    },
+    "eapi": {
+        "ping": "/eapi/v1/ping",
+        "time": "/eapi/v1/time",
+        "exchange_info": "/eapi/v1/exchangeInfo",
+        "mark": "/eapi/v1/mark",
+        "index": "/eapi/v1/index",
+        "depth": "/eapi/v1/depth",
+        "klines": "/eapi/v1/klines",
+        "ticker": "/eapi/v1/ticker",
+        "open_interest": "/eapi/v1/openInterest",
+        "exercise_history": "/eapi/v1/exerciseHistory",
     },
 }
 
@@ -213,6 +227,8 @@ class BinancePublicClient:
             return BINANCE_FUTURES_UM_BASE_URL
         if self.market == "cm":
             return BINANCE_FUTURES_CM_BASE_URL
+        if self.market == "eapi":
+            return BINANCE_OPTIONS_BASE_URL
         raise ValueError(f"Mercado no soportado: {self.market!r}")
 
     def _load_limits(self) -> ExchangeRateLimits:
@@ -222,6 +238,8 @@ class BinancePublicClient:
             return get_futures_um_rate_limits()
         if self.market == "cm":
             return get_futures_cm_rate_limits()
+        if self.market == "eapi":
+            return get_options_rate_limits()
         raise ValueError(f"Mercado no soportado: {self.market!r}")
 
     @property
@@ -505,6 +523,26 @@ class BinancePublicClient:
         if not isinstance(data, dict):
             raise RuntimeError(f"Respuesta inesperada de /exchangeInfo: {data!r}")
 
+        return data
+
+    def ticker_price(self, symbol: str | None = None, timeout: int = 10) -> dict | list:
+        """
+        Precio actual de un symbol o de todos (``GET /api/v3/ticker/price``).
+
+        Parameters
+        ----------
+        symbol : str | None
+            Symbol (ej.: ``"BTCUSDC"``). Si es None, devuelve la lista de todos los precios.
+
+        Returns
+        -------
+        dict | list
+            ``{"symbol":..., "price":...}`` o lista de ellos si ``symbol`` es None.
+        """
+        params: dict[str, object] | None = {"symbol": symbol.upper()} if symbol is not None else None
+        data = self.get(endpoint="/api/v3/ticker/price", params=params, timeout=timeout)
+        if not isinstance(data, (dict, list)):
+            raise RuntimeError(f"Respuesta inesperada de /ticker/price: {data!r}")
         return data
 
     # ==========================
