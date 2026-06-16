@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## v2.6.0 (2026-06-16)
+
+European Options (EAPI) public market data.
+
+### Features
+
+- New `BinanceOptionsClient` (market fixed to `"eapi"`,
+  `https://eapi.binance.com`). Subclass of `BinancePublicClient`: reuses the
+  HTTP layer, rate limiting (REQUEST_WEIGHT 400/min from `/eapi/v1/exchangeInfo`)
+  and clock sync.
+- `exchange_info_options()`: contract catalog (strikes, expiries, CALL/PUT,
+  underlying, filters, status) via `GET /eapi/v1/exchangeInfo`.
+- `mark(symbol=)`: mark price, implied volatility and greeks
+  (delta/gamma/theta/vega) via `GET /eapi/v1/mark`. IV and greeks are computed
+  by Binance.
+- `index(underlying)`: underlying index price (`GET /eapi/v1/index`).
+- `ticker(symbol=)`: 24h stats per contract (`GET /eapi/v1/ticker`).
+- `open_interest(underlying_asset, expiration)`: aggregated OI per expiry
+  (`GET /eapi/v1/openInterest`; note the per-asset/expiry signature, distinct
+  from the futures `open_interest(symbol)`).
+- `exercise_history(underlying=)`: past exercises/settlements
+  (`GET /eapi/v1/exerciseHistory`).
+- `depth()` and `klines()` inherited unchanged for the `"eapi"` market.
+
+### Infrastructure
+
+- `"eapi"` registered as a market across `weights.py` (`OPTIONS_WEIGHTS`),
+  `config.py` (`get_options_rate_limits()`) and `public.py` (`_ENDPOINTS`,
+  `base_url`, `_load_limits`).
+- `BINANCE_OPTIONS_BASE_URL` added to `http/client.py`.
+
+### Tests
+
+- `test_options.py`: 52 empirical tests covering exchangeInfo, mark (IV/greeks
+  invariants: CALL delta in [0,1], PUT delta in [-1,0], gamma/vega >= 0, the
+  `bidIV/askIV == -1` sentinel), index, ticker, depth, klines, open interest
+  and exercise history. Live symbols are discovered at runtime (status
+  `TRADING`) since option contracts expire.
+
 ## v2.5.3 (2026-06-13)
 
 Execution primitives for liquidation/emergency flows.

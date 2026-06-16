@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from panzer import BinancePublicClient
+from panzer import BinanceOptionsClient, BinancePublicClient
 from panzer.errors import BinanceAPIException
 
 
@@ -85,6 +85,27 @@ class FuturesTestData:
     funding_rate_history: list[dict[str, Any]]
     funding_info: list[dict[str, Any]]
     force_orders: list[dict[str, Any]]
+
+
+@dataclass
+class OptionsTestData:
+    """Datos de opciones europeas (EAPI), cacheados para toda la sesion."""
+
+    client: BinanceOptionsClient
+    info: dict[str, Any]
+    call_symbol: str
+    put_symbol: str
+    underlying: str
+    underlying_asset: str
+    expiration: str
+    mark_call: list[dict[str, Any]]
+    mark_all: list[dict[str, Any]]
+    index: dict[str, Any]
+    ticker_call: list[dict[str, Any]]
+    depth: dict[str, Any]
+    klines_1h: list[list[object]]
+    open_interest: list[dict[str, Any]]
+    exercise_history: list[dict[str, Any]]
 
 
 # =====================================================================
@@ -169,6 +190,52 @@ def _safe_force_orders(
         return []
 
 
+def _pick_option_symbols(info: dict[str, Any]) -> tuple[str, str, str]:
+    """
+    Elige un CALL y un PUT negociables del mismo subyacente (BTCUSDT si existe).
+
+    Los contratos de opciones caducan, por lo que NO se hardcodean simbolos:
+    se descubren en runtime desde ``optionSymbols`` con ``status == "TRADING"``.
+    """
+    trading = [s for s in info.get("optionSymbols", []) if s.get("status") == "TRADING"]
+    underlyings = {s["underlying"] for s in trading}
+    underlying = "BTCUSDT" if "BTCUSDT" in underlyings else sorted(underlyings)[0]
+
+    pool = [s for s in trading if s["underlying"] == underlying]
+    call = next(s["symbol"] for s in pool if s["side"] == "CALL")
+    put = next(s["symbol"] for s in pool if s["side"] == "PUT")
+    return call, put, underlying
+
+
+def _build_options_data() -> OptionsTestData:
+    """Crea un cliente de opciones y descarga los datos (1 vez por sesion)."""
+    client = BinanceOptionsClient(safety_ratio=0.9)
+    info = client.exchange_info_options()
+    call, put, underlying = _pick_option_symbols(info)
+
+    # underlyingAsset (ej. "BTC") y expiration (YYMMDD) derivados del simbolo
+    # del CALL elegido: "BTC-260626-140000-C" -> ("BTC", "260626").
+    underlying_asset, expiration = call.split("-")[0], call.split("-")[1]
+
+    return OptionsTestData(
+        client=client,
+        info=info,
+        call_symbol=call,
+        put_symbol=put,
+        underlying=underlying,
+        underlying_asset=underlying_asset,
+        expiration=expiration,
+        mark_call=client.mark(call),
+        mark_all=client.mark(),
+        index=client.index(underlying),
+        ticker_call=client.ticker(call),
+        depth=client.depth(call, limit=10),
+        klines_1h=client.klines(call, "1h", limit=10),
+        open_interest=client.open_interest(underlying_asset, expiration),
+        exercise_history=client.exercise_history(limit=10),
+    )
+
+
 # =====================================================================
 # Fixtures de sesion
 # =====================================================================
@@ -222,6 +289,14 @@ def _all_futures_data() -> dict[str, FuturesTestData]:
 def futures_data(request: pytest.FixtureRequest, _all_futures_data: dict) -> FuturesTestData:
     """Un FuturesTestData por mercado futures; el test se ejecuta 2 veces (um, cm)."""
     return _all_futures_data[request.param]
+
+
+@pytest.fixture(scope="session")
+def options_data() -> OptionsTestData:
+    """Datos de opciones europeas (EAPI), obtenidos una sola vez por sesion."""
+    od = _build_options_data()
+    print(f"\n  [eapi/options] call={od.call_symbol} put={od.put_symbol} underlying={od.underlying}")
+    return od
 
 
 @pytest.fixture(scope="session")

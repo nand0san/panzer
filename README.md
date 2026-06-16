@@ -5,7 +5,8 @@ limiting and secure credential management.
 
 ## Features
 
-- **Multi-market support**: Spot, USDT-M Futures, COIN-M Futures.
+- **Multi-market support**: Spot, USDT-M Futures, COIN-M Futures and European
+  Options (EAPI).
 - **Automatic rate limiting**: Fixed-window limiter synchronized with Binance's
   `X-MBX-USED-WEIGHT-1M` header. Sleeps before hitting limits instead of
   getting banned.
@@ -60,6 +61,15 @@ info   = client.exchange_info()
 spot = BinancePublicClient(market="spot")    # https://api.binance.com
 um   = BinancePublicClient(market="um")      # https://fapi.binance.com
 cm   = BinancePublicClient(market="cm")      # https://dapi.binance.com
+```
+
+European Options (EAPI) use a dedicated client that reuses the same plumbing
+(HTTP, rate limiting, clock sync):
+
+```python
+from panzer import BinanceOptionsClient
+
+opt = BinanceOptionsClient()                 # https://eapi.binance.com
 ```
 
 ## Quick Start — Authenticated Endpoints
@@ -154,6 +164,35 @@ on `"spot"` raises `KeyError`.
 | `premium_index(symbol=)` | Mark price, index price, funding rate | Returns dict (UM + symbol) or list (CM, or all symbols) |
 | `funding_rate_history(symbol=)` | Historical funding rates | `limit` (default 100, max 1000), `start_time`, `end_time` |
 | `funding_info()` | Funding config for all contracts | Interval, cap, floor per symbol |
+
+### European Options (EAPI)
+
+Available on `BinanceOptionsClient` (market is fixed to `"eapi"`). Returns raw
+parsed JSON from Binance — implied volatility and greeks are computed by Binance,
+no Black-Scholes needed on the client side.
+
+| Method | Description | Key parameters |
+|--------|-------------|----------------|
+| `exchange_info_options()` | Contract catalog (strikes, expiries, CALL/PUT, status) | |
+| `mark(symbol=)` | Mark price, implied volatility and greeks (delta/gamma/theta/vega) | Returns a list; omit `symbol` for all contracts |
+| `index(underlying)` | Underlying index price | `underlying`: e.g. `"BTCUSDT"` |
+| `ticker(symbol=)` | 24h stats per contract | Omit `symbol` for all contracts |
+| `depth(symbol)` | Order book (inherited) | `limit` (default 100; affects weight) |
+| `klines(symbol, interval)` | Candlestick data (inherited) | `limit`, `start_time`, `end_time` |
+| `open_interest(underlying_asset, expiration)` | Aggregated OI per expiry | `underlying_asset`: e.g. `"BTC"`; `expiration`: `YYMMDD` (e.g. `"260626"`) |
+| `exercise_history(underlying=)` | Past exercises/settlements | `limit` (default 100), `start_time`, `end_time` |
+
+```python
+from panzer import BinanceOptionsClient
+
+opt = BinanceOptionsClient()
+info  = opt.exchange_info_options()
+marks = opt.mark("BTC-260626-140000-C")      # markIV, delta, gamma, theta, vega
+oi    = opt.open_interest("BTC", "260626")
+```
+
+> **Caveat for analysis**: in `mark()`, `bidIV`/`askIV` use `-1` as a sentinel
+> meaning "no quote". Filter those out before aggregating; `markIV` is always `>= 0`.
 
 ### Range Pagination
 
